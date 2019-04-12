@@ -1,29 +1,23 @@
 #!/usr/bin/env racket
+#lang racket
+;;;
 ;; File:  main.rkt
 ;; Author: ymiyamoto
 ;;
 ;; Created on Fri Apr 12 16:20:51 2019
 ;;
-#lang racket
 (require racket/cmdline)
+(require "parser.rkt")
+(require "assemble.rkt")
 
-(define num-to-compile
+(define arith-to-compile
   (command-line
-   #:args (num)
-  num))
-
+   #:args (arith)
+  arith))
 
 (define (main)
-  (define num num-to-compile)
-
-  (displayln ".intel_syntax noprefix")
-  (displayln ".global main")
-  (displayln "main:")
-  (displayln (format "  mov rax, ~a" num))
-  (displayln "  ret"))
+  (define arith arith-to-compile)
+  (define parsed (parse-arith arith))
+  (displayln (assemble parsed)))
 
 (main)
-
-(module+ test
-  (require rackunit)
-)
