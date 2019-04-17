@@ -11,19 +11,34 @@
 (provide (contract-out
           [parse-arith (string? . -> . list?)]))
 
-(define (parse-arith str)
-  (define (converter s)
-    (match s
-      ["+" '+]
-      ["-" '-]
-      [_ (string->number s)]
-      ))
+(struct token (type val msg)
+  #:transparent)
 
-  (map converter (string-split str)))
+(define (atoi c)
+  (- (char->intger c) (char->integer #\0)))
+
+(define (parse-num chars)
+  (cond
+    ((null? chars) 0)
+    ((char-numeric? (car chars))
+     (parse-num cdr)
+     (+ (* (atoi (car chars)) 10) ))
+    (else ()))
+
+(define (tokenize chars)
+  (cond
+      ((null? chars) (type 'EOF "" ""))
+      ((eq? (car chars) #\space) (tokenize (cdr chars)))
+      ((eq? (car chars) #\+) (cons (token '+ #\+ "") (tokenize (cdr chars))))
+      ((eq? (car chars) #\-) (cons (token '+ #\- "") (tokenize (cdr chars))))
+      (else (cons (token 'NUM 1 "") (tokenize (cdr chars))))))
+
+(define (parse-arith str)
+  (tokenize (string->list str)))
 
 (module+ test
   (require rackunit)
 
-  (check-equal? (parse-arith "1") (list 1))
+  (check-equal? (parse-arith "1") (list (token type-int 1 "")))
   (check-equal? (parse-arith "1 + 23 + 324") (list 1 '+ 23 '+ 324))
   (check-equal? (parse-arith "234 + 2 - 3") (list 234 '+ 2 '- 3)))
