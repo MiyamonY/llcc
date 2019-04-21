@@ -6,35 +6,39 @@
 ;;
 #lang racket
 (require racket/contract)
+(require "parser.rkt")
 
 (provide (contract-out
          [assemble (list? . -> . string?)]))
 
-(define (assemble arith)
-  (string-append
-   ".intel_syntax noprefix\n"
-   ".global main\n"
-   "main:\n"
-   (assemble-arith arith)
-   "  ret\n"
-   ))
+(define (assemble tokens)
+  (string-join
+   (list ".intel_syntax noprefix"
+         ".global main"
+         "main:"
+         (assemble-arith tokens)
+         "  ret")
+   "\n"))
 
-(define (assemble-arith arith)
-  (define (aux rest)
-    (if (null? rest)
-        ""
-        (let ([operator (car rest)]
-              [operand (cadr rest)])
-          (string-append
-           (cond
-             [(equal? operator '+) (format "  add rax, ~v\n" operand)]
-             [(equal? operator '-) (format "  sub rax, ~v\n" operand)]
-             [else (error "invalid operator" operator)])
-           (aux (cddr rest))))))
+(define (assemble-arith tokens)
+  (define (aux tokens)
+    (cond
+      [(eq? (token-type (car tokens)) 'EOF) '()]
+      [(eq? (token-type (car tokens)) '+)
+       (cons (format "  add rax, ~v" (token-val (cadr tokens))) (aux (cddr tokens)))]
+      [(eq? (token-type (car tokens)) '-)
+       (cons (format "  sub rax, ~v" (token-val (cadr tokens))) (aux (cddr tokens)))]
+      [else (error 'assembe-error "assemble invalid token")]))
 
-  (string-append
-   (format "  mov rax, ~v\n" (car arith))
-   (aux (cdr arith))))
+  (define first-token (car tokens))
+  (define rest-token (cdr tokens))
+
+  (if (not (eq? (token-type first-token) 'NUM))
+      (error 'assemble-error "first token is not number")
+      (string-join (cons
+                    (format "  mov rax, ~v" (token-val first-token))
+                    (aux rest-token))
+                   "\n")))
 
 (module+ test
   (require rackunit)
@@ -42,19 +46,23 @@
   (define (check-assemble? arith expect)
     (define actual (assemble arith))
     (check-equal? actual
-                  (string-append ".intel_syntax noprefix\n"
-                                 ".global main\n"
-                                 "main:\n"
-                                 expect
-                                 "  ret\n"
-                                 )))
+                  (string-join
+                   (list ".intel_syntax noprefix"
+                         ".global main"
+                         "main:"
+                         expect
+                         "  ret")
+                   "\n")))
 
   (define tests
-    '(((5) . "  mov rax, 5\n")
-      ((1 + 2 + 3) . "  mov rax, 1\n  add rax, 2\n  add rax, 3\n")
-      ((1 - 2 + 3) . "  mov rax, 1\n  sub rax, 2\n  add rax, 3\n")))
+    (list (cons "5"  "  mov rax, 5")
+          (cons "1 + 2+ 3"
+                (string-join
+                 (list "  mov rax, 1" "  add rax, 2" "  add rax, 3") "\n"))
+          (cons "1-2 + 3"
+                (string-join
+                 (list "  mov rax, 1" "  sub rax, 2" "  add rax, 3") "\n"))))
 
   (for-each (lambda (c)
-              (check-pred pair? c)
               (check-assemble? (car c) (cdr c)))
             tests))

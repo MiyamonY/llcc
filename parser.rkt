@@ -9,29 +9,42 @@
 (require  racket/contract)
 
 (provide (contract-out
-          [parse-arith (string? . -> . list?)]))
+          [parse-arith (string? . -> . list?)])
+         (struct-out token))
 
 (struct token (type val msg)
   #:transparent)
 
 (define (atoi c)
-  (- (char->intger c) (char->integer #\0)))
+  (- (char->integer c) (char->integer #\0)))
 
-(define (parse-num chars)
-  (cond
-    ((null? chars) 0)
-    ((char-numeric? (car chars))
-     (parse-num cdr)
-     (+ (* (atoi (car chars)) 10) ))
-    (else ()))
+(module+ test
+  (require rackunit)
+  (check-equal? (match '()
+                  [(list) 'null]
+                  [_ 'not-null ]
+                  ) 'null)
+  (check-equal? (match (list 1 2 3)
+                  [(list a rest ...) rest]) (list 2 3)))
+
+(define (take-while ls f)
+  (define (aux ls acc)
+    (match ls
+      [(list) (values (string->number (list->string (reverse acc))) '())]
+      [(list a rest ...) #:when (f a) (aux rest (cons (car ls) acc))]
+      [_ (values (string->number (list->string (reverse acc))) ls)] ))
+  (aux ls '()))
 
 (define (tokenize chars)
   (cond
-      ((null? chars) (type 'EOF "" ""))
-      ((eq? (car chars) #\space) (tokenize (cdr chars)))
-      ((eq? (car chars) #\+) (cons (token '+ #\+ "") (tokenize (cdr chars))))
-      ((eq? (car chars) #\-) (cons (token '+ #\- "") (tokenize (cdr chars))))
-      (else (cons (token 'NUM 1 "") (tokenize (cdr chars))))))
+      [(null? chars) (list (token 'EOF "" ""))]
+      [(eq? (car chars) #\space) (tokenize (cdr chars))]
+      [(eq? (car chars) #\+) (cons (token '+ #\+ "") (tokenize (cdr chars)))]
+      [(eq? (car chars) #\-) (cons (token '- #\- "") (tokenize (cdr chars)))]
+      [(char-numeric? (car chars)) (let-values
+                                       ([(num rest) (take-while chars char-numeric?)])
+                                     (cons (token 'NUM num "") (tokenize rest)))]
+      [else (error 'parse-error "undefined token")]))
 
 (define (parse-arith str)
   (tokenize (string->list str)))
@@ -39,6 +52,23 @@
 (module+ test
   (require rackunit)
 
-  (check-equal? (parse-arith "1") (list (token type-int 1 "")))
-  (check-equal? (parse-arith "1 + 23 + 324") (list 1 '+ 23 '+ 324))
-  (check-equal? (parse-arith "234 + 2 - 3") (list 234 '+ 2 '- 3)))
+  (check-equal? (parse-arith "1")
+                (list (token 'NUM 1 "") (token 'EOF "" "")))
+
+  (check-equal? (parse-arith "1 + 23 + 324")
+                (list (token 'NUM 1 "")
+                      (token '+ #\+ "")
+                      (token 'NUM 23 "")
+                      (token '+ #\+ "")
+                      (token 'NUM 324 "")
+                      (token 'EOF "" "")))
+
+  (check-equal? (parse-arith "234+2 - 3")
+                (list (token 'NUM 234 "")
+                      (token '+ #\+ "")
+                      (token 'NUM 2 "")
+                      (token '- #\- "")
+                      (token 'NUM 3 "")
+                      (token 'EOF "" "")))
+
+  (check-exn exn:fail? (lambda () (parse-arith "a + 32"))))
