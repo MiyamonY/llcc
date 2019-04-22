@@ -54,10 +54,10 @@
                          "  ret")
                    "\n")))
 
-  (test-case "parse sinlge value"
+  (test-case "assemble sinlge value"
     (check-assemble? (list (token 'NUM 5 "") (token 'EOF "" "")) "  mov rax, 5"))
 
-  (test-case "parse arith"
+  (test-case "assmelbe arith"
     (check-assemble? (list (token 'NUM 1 "")
                            (token '+ #\+ "")
                            (token 'NUM 2 "")
@@ -66,6 +66,9 @@
                            (token 'EOF "" ""))
                      (string-join
                       (list "  mov rax, 1" "  add rax, 2" "  sub rax, 3") "\n")))
+
+  (test-case "invalidate null value"
+    (check-exn exn:fail? (lambda () (assemble (list (token 'EOF "" ""))))))
 
   (test-case "invalidate double operator"
     (check-exn exn:fail? (lambda () (assemble (list (token 'NUM 1 "")

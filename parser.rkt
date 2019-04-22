@@ -52,23 +52,22 @@
 (module+ test
   (require rackunit)
 
-  (check-equal? (parse-arith "1")
-                (list (token 'NUM 1 "") (token 'EOF "" "")))
+  (test-case "parse null exp"
+    (check-equal? (parse-arith "")
+                (list (token 'EOF "" ""))))
 
-  (check-equal? (parse-arith "1 + 23 + 324")
-                (list (token 'NUM 1 "")
-                      (token '+ #\+ "")
-                      (token 'NUM 23 "")
-                      (token '+ #\+ "")
-                      (token 'NUM 324 "")
-                      (token 'EOF "" "")))
+  (test-case "parse single value"
+    (check-equal? (parse-arith "1")
+                (list (token 'NUM 1 "") (token 'EOF "" ""))))
 
-  (check-equal? (parse-arith "234+2 - 3")
+  (test-case "parse arithmetic exp"
+    (check-equal? (parse-arith "234+2 - 3")
                 (list (token 'NUM 234 "")
                       (token '+ #\+ "")
                       (token 'NUM 2 "")
                       (token '- #\- "")
                       (token 'NUM 3 "")
-                      (token 'EOF "" "")))
+                      (token 'EOF "" ""))))
 
-  (check-exn exn:fail? (lambda () (parse-arith "a + 32"))))
+  (test-case "invalidate exp with undefined token"
+    (check-exn exn:fail? (lambda () (parse-arith "a + 32")))))
