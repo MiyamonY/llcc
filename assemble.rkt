@@ -9,7 +9,7 @@
 (require "parser.rkt")
 
 (provide (contract-out
-         [assemble (node? . -> . string?)]))
+          [assemble ((listof node?) . -> . string?)]))
 
 (define ((add-indent [num 2]) str)
   (define indent (make-string num #\space))
@@ -20,7 +20,7 @@
    (flatten  (list ".intel_syntax noprefix"
                    ".global main"
                    "main:"
-                   (map (add-indent 2) (assemble-arith nodes))
+                   (map (add-indent 2) (flatten (map assemble-arith nodes)))
                    "  pop rax"
                    "  ret"))
    "\n"))
@@ -66,32 +66,32 @@
                    "\n")))
 
   (test-case "assemble sinlge value"
-    (check-assemble? (node 'NUM '() '() 5 "") '("push 5")))
+    (check-assemble? (list (node 'NUM '() '() 5 "")) '("push 5")))
 
   (test-case "assmeble arith"
     ;; (2+3)/5*(3-10)
-    (check-assemble? (node 'MUL
-                           (node 'MUL
+    (check-assemble? (list (node 'MUL
+                                 (node 'MUL
+                                       (node 'ADD
+                                             (node 'NUM '() '() 2 "")
+                                             (node 'NUM '() '() 3 "")
+                                             #\+
+                                             "")
+                                       (node 'NUM
+                                             '()
+                                             '()
+                                             5
+                                             "")
+                                       #\/
+                                       "")
                                  (node 'ADD
-                                       (node 'NUM '() '() 2 "")
                                        (node 'NUM '() '() 3 "")
-                                       #\+
+                                       (node 'NUM '() '() 10 "")
+                                       #\-
                                        "")
-                                 (node 'NUM
-                                       '()
-                                       '()
-                                       5
-                                       "")
-                                 #\/
-                                 "")
-                           (node 'ADD
-                                 (node 'NUM '() '() 3 "")
-                                 (node 'NUM '() '() 10 "")
-                                 #\-
-                                 "")
-                           #\*
-                           ""
-                           )
+                                 #\*
+                                 ""
+                                 ))
                      '("push 2" "push 3" "pop rdi" "pop rax" "add rax, rdi" "push rax"
                                 "push 5" "pop rdi" "pop rax" "mov rdx, 0" "div rdi" "push rax"
                                 "push 3" "push 10" "pop rdi" "pop rax" "sub rax, rdi" "push rax"
@@ -100,7 +100,7 @@
   (test-case "invalidate invalid token"
     (for-each
      (lambda (input) (check-exn exn:fail? (lambda () (assemble input))))
-     (list (node 'ADD
-                 (node 'NUM '() '() 3 "")
-                 (node 'NUM '() '() 5 "") #\space "")
-           (node 'MUL (node 'NUM '() '() 1 "") (node 'NUM '() '() 2 "") #\+ "")))))
+     (list (list (node 'ADD
+                       (node 'NUM '() '() 3 "")
+                       (node 'NUM '() '() 5 "") #\space ""))
+           (list (node 'MUL (node 'NUM '() '() 1 "") (node 'NUM '() '() 2 "") #\+ ""))))))

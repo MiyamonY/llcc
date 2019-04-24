@@ -9,7 +9,7 @@
 (require  racket/contract)
 
 (provide (contract-out
-          [parse (string? . -> . node?)])
+          [parse (string? . -> . (listof node?))])
          (struct-out node))
 
 (struct node (type left right value msg)
@@ -90,9 +90,9 @@
     [else (error "parse error")]))
 
 (define (parse str)
-  (define-values (node rest) (add (string->list str)))
+  (define-values (nodes rest) (add (string->list str)))
   (if (null? rest)
-      node
+      (list nodes)
       (error "unparsed token")))
 
 ;; tests
@@ -106,12 +106,12 @@
 
   (test-case "parse single value"
     (check-equal? (parse "234")
-                  (node 'NUM '() '() 234 "")))
+                  (list (node 'NUM '() '() 234 ""))))
 
   (test-case "parse valid arithmetic exp"
     (check-equal? (parse "(234 + 2)*3/ 2")
-                  (node 'MUL
-                        (node 'MUL
+                  (list (node 'MUL
+                              (node 'MUL
                               (node 'ADD
                                     (node 'NUM '() '() 234 "")
                                     (node 'NUM '() '() 2 "")
@@ -122,11 +122,11 @@
                               "")
                         (node 'NUM '() '() 2 "")
                         #\/
-                        "")))
+                        ""))))
 
   (test-case "parse valid arithmetic exp"
     (check-equal? (parse "(234 + 2)/(3+3*2)")
-                  (node 'MUL
+                  (list (node 'MUL
                         (node 'ADD
                               (node 'NUM '() '() 234 "")
                               (node 'NUM '() '() 2 "")
@@ -142,15 +142,15 @@
                               #\+
                               "")
                         #\/
-                        "")))
+                        ""))))
 
   (test-case "parse sinlge variable"
     (check-equal? (parse "2+c")
-                  (node 'ADD
-                        (node 'NUM '() '() 2 "")
-                        (node 'VAR '()' () "c" "")
-                        #\+
-                        "")))
+                  (list (node 'ADD
+                              (node 'NUM '() '() 2 "")
+                              (node 'VAR '()' () "c" "")
+                              #\+
+                              ""))))
 
   (test-case "invalidate null exp"
     (check-exn exn:fail? (lambda () (parse ""))))
