@@ -9,7 +9,7 @@
 (require  racket/contract)
 
 (provide (contract-out
-          [parse (string? . -> . list?)])
+          [parse (string? . -> . node?)])
          (struct-out node))
 
 (struct node (type left right value msg)

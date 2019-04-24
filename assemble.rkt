@@ -9,36 +9,46 @@
 (require "parser.rkt")
 
 (provide (contract-out
-         [assemble (list? . -> . string?)]))
+         [assemble (node? . -> . string?)]))
 
-(define (assemble tokens)
+(define ((add-indent [num 2]) str)
+  (define indent (make-string num #\space))
+  (format "~a~a" indent str))
+
+(define (assemble nodes)
   (string-join
-   (list ".intel_syntax noprefix"
-         ".global main"
-         "main:"
-         (assemble-arith tokens)
-         "  ret")
+   (flatten  (list ".intel_syntax noprefix"
+                   ".global main"
+                   "main:"
+                   (map (add-indent 2) (assemble-arith nodes))
+                   "  pop rax"
+                   "  ret"))
    "\n"))
 
-(define (assemble-arith tokens)
-  (define (aux tokens)
-    (cond
-      [(eq? (token-type (car tokens)) 'EOF) '()]
-      [(eq? (token-type (car tokens)) '+)
-       (cons (format "  add rax, ~v" (token-val (cadr tokens))) (aux (cddr tokens)))]
-      [(eq? (token-type (car tokens)) '-)
-       (cons (format "  sub rax, ~v" (token-val (cadr tokens))) (aux (cddr tokens)))]
-      [else (error 'assembe-error "assemble invalid token")]))
+(define (assemble-arith nodes)
+  (define type (node-type nodes))
+  (define value (node-value nodes))
 
-  (define first-token (car tokens))
-  (define rest-token (cdr tokens))
-
-  (if (not (eq? (token-type first-token) 'NUM))
-      (error 'assemble-error "first token is not number")
-      (string-join (cons
-                    (format "  mov rax, ~v" (token-val first-token))
-                    (aux rest-token))
-                   "\n")))
+  (match type
+    ['NUM (list (format "push ~v" value))]
+    ['ADD (let ((left  (assemble-arith (node-left nodes)))
+                (right (assemble-arith (node-right nodes))))
+            (append left right
+                    (list "pop rdi" "pop rax"
+                          (match value
+                            [#\+ "add rax, rdi"]
+                            [#\- "sub rax, rdi"]
+                            [_  (error "invalid operator:" value)])
+                          "push rax")))]
+    ['MUL (let ((left  (assemble-arith (node-left nodes)))
+                (right (assemble-arith (node-right nodes))))
+            (append left right
+                    (flatten (list "pop rdi" "pop rax"
+                                   (match value
+                                     [#\* "mul rdi"]
+                                     [#\/ '("mov rdx, 0" "div rdi")]
+                                     [_ (error "invalid operator:" value)])
+                                   "push rax"))))]))
 
 (module+ test
   (require rackunit)
@@ -47,36 +57,50 @@
     (define actual (assemble arith))
     (check-equal? actual
                   (string-join
-                   (list ".intel_syntax noprefix"
-                         ".global main"
-                         "main:"
-                         expect
-                         "  ret")
+                   (flatten (list ".intel_syntax noprefix"
+                                  ".global main"
+                                  "main:"
+                                  (map (add-indent 2) expect)
+                                  "  pop rax"
+                                  "  ret"))
                    "\n")))
 
   (test-case "assemble sinlge value"
-    (check-assemble? (list (token 'NUM 5 "") (token 'EOF "" "")) "  mov rax, 5"))
+    (check-assemble? (node 'NUM '() '() 5 "") '("push 5")))
 
-  (test-case "assmelbe arith"
-    (check-assemble? (list (token 'NUM 1 "")
-                           (token '+ #\+ "")
-                           (token 'NUM 2 "")
-                           (token '- #\- "")
-                           (token 'NUM 3 "")
-                           (token 'EOF "" ""))
-                     (string-join
-                      (list "  mov rax, 1" "  add rax, 2" "  sub rax, 3") "\n")))
+  (test-case "assmeble arith"
+    ;; (2+3)/5*(3-10)
+    (check-assemble? (node 'MUL
+                           (node 'MUL
+                                 (node 'ADD
+                                       (node 'NUM '() '() 2 "")
+                                       (node 'NUM '() '() 3 "")
+                                       #\+
+                                       "")
+                                 (node 'NUM
+                                       '()
+                                       '()
+                                       5
+                                       "")
+                                 #\/
+                                 "")
+                           (node 'ADD
+                                 (node 'NUM '() '() 3 "")
+                                 (node 'NUM '() '() 10 "")
+                                 #\-
+                                 "")
+                           #\*
+                           ""
+                           )
+                     '("push 2" "push 3" "pop rdi" "pop rax" "add rax, rdi" "push rax"
+                                "push 5" "pop rdi" "pop rax" "mov rdx, 0" "div rdi" "push rax"
+                                "push 3" "push 10" "pop rdi" "pop rax" "sub rax, rdi" "push rax"
+                                "pop rdi" "pop rax" "mul rdi" "push rax")))
 
-  (test-case "invalidate null value"
-    (check-exn exn:fail? (lambda () (assemble (list (token 'EOF "" ""))))))
-
-  (test-case "invalidate double operator"
-    (check-exn exn:fail? (lambda () (assemble (list (token 'NUM 1 "")
-                                                    (token '+ #\+ "")
-                                                    (token '+ #\+ "")
-                                                    (token 'NUM 2 "")
-                                                    (token 'EOF "" ""))))))
-  (test-case "invalidate no operands"
-    (check-exn exn:fail? (lambda () (assemble (list (token 'NUM 1 "")
-                                                    (token '+ #\+ "")
-                                                    (token 'EOF "" "")))))))
+  (test-case "invalidate invalid token"
+    (for-each
+     (lambda (input) (check-exn exn:fail? (lambda () (assemble input))))
+     (list (node 'ADD
+                 (node 'NUM '() '() 3 "")
+                 (node 'NUM '() '() 5 "") #\space "")
+           (node 'MUL (node 'NUM '() '() 1 "") (node 'NUM '() '() 2 "") #\+ "")))))
