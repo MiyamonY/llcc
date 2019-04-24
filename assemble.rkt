@@ -9,36 +9,44 @@
 (require "parser.rkt")
 
 (provide (contract-out
-         [assemble (list? . -> . string?)]))
+         [assemble (node? . -> . string?)]))
 
-(define (assemble tokens)
+(define (add-indent str)
+  (format "  ~a" str))
+
+(define (assemble nodes)
   (string-join
    (list ".intel_syntax noprefix"
          ".global main"
          "main:"
-         (assemble-arith tokens)
+         (string-join (map add-indent (assemble-arith nodes)) "\n")
+         "  pop rax"
          "  ret")
    "\n"))
 
-(define (assemble-arith tokens)
-  (define (aux tokens)
-    (cond
-      [(eq? (token-type (car tokens)) 'EOF) '()]
-      [(eq? (token-type (car tokens)) '+)
-       (cons (format "  add rax, ~v" (token-val (cadr tokens))) (aux (cddr tokens)))]
-      [(eq? (token-type (car tokens)) '-)
-       (cons (format "  sub rax, ~v" (token-val (cadr tokens))) (aux (cddr tokens)))]
-      [else (error 'assembe-error "assemble invalid token")]))
+(define (assemble-arith nodes)
+  (define type (node-type nodes))
+  (define value (node-value nodes))
 
-  (define first-token (car tokens))
-  (define rest-token (cdr tokens))
-
-  (if (not (eq? (token-type first-token) 'NUM))
-      (error 'assemble-error "first token is not number")
-      (string-join (cons
-                    (format "  mov rax, ~v" (token-val first-token))
-                    (aux rest-token))
-                   "\n")))
+  (cond
+    [(eq? type 'NUM) (list (format "push ~a" value))]
+    [(and (eq? type 'ADD) (eq? value #\+))
+          (let ((left (assemble-arith (node-left nodes)))
+                (right (assemble-arith (node-right nodes))))
+            (append left right '("pop rdi" "pop rax" "add rax, rdi" "push rax")))]
+    [(and (eq? type 'ADD) (eq? value #\-))
+          (let ((left (assemble-arith (node-left nodes)))
+                (right (assemble-arith (node-right nodes))))
+            (append left right '("pop rdi" "pop rax" "sub rax, rdi" "push rax")))]
+    [(and (eq? type 'MUL) (eq? value #\*))
+          (let ((left (assemble-arith (node-left nodes)))
+                (right (assemble-arith (node-right nodes))))
+            (append left right '("pop rdi" "pop rax" "mul rdi" "push rax")))]
+    [(and (eq? type 'MUL) (eq? value #\/))
+          (let ((left (assemble-arith (node-left nodes)))
+                (right (assemble-arith (node-right nodes))))
+            (append left right '("pop rdi" "pop rax" "div rdi" "push rax")))]
+    [else (error "undefined node" type value)]))
 
 (module+ test
   (require rackunit)
@@ -51,32 +59,44 @@
                          ".global main"
                          "main:"
                          expect
+                         "  pop rax"
                          "  ret")
                    "\n")))
 
   (test-case "assemble sinlge value"
-    (check-assemble? (list (token 'NUM 5 "") (token 'EOF "" "")) "  mov rax, 5"))
+    (check-assemble? (node 'NUM '() '() 5 "")
+                     (string-join (map add-indent (list "push 5")) "\n")))
 
-  (test-case "assmelbe arith"
-    (check-assemble? (list (token 'NUM 1 "")
-                           (token '+ #\+ "")
-                           (token 'NUM 2 "")
-                           (token '- #\- "")
-                           (token 'NUM 3 "")
-                           (token 'EOF "" ""))
+  (test-case "assmelbe valid arith"
+    ;; (3+2)*4/(2-5)
+    (check-assemble? (node 'MUL
+                           (node 'MUL
+                                 (node 'ADD
+                                       (node 'NUM '() '() 3 "")
+                                       (node 'NUM '() '() 2 "")
+                                       #\+
+                                       "")
+                                 (node 'NUM '() '() 4 "")
+                                 #\*
+                                 "")
+                           (node 'ADD
+                                 (node 'NUM '() '() 2 "")
+                                 (node 'NUM '() '() 5 "")
+                                 #\-
+                                 "")
+                           #\/
+                           "")
                      (string-join
-                      (list "  mov rax, 1" "  add rax, 2" "  sub rax, 3") "\n")))
+                      (map add-indent
+                           (list "push 3" "push 2" "pop rdi" "pop rax"
+                                 "add rax, rdi" "push rax"
+                                 "push 4" "pop rdi" "pop rax" "mul rdi" "push rax"
+                                 "push 2" "push 5" "pop rdi" "pop rax"
+                                 "sub rax, rdi" "push rax"
+                                 "pop rdi" "pop rax" "div rdi" "push rax")) "\n")))
 
-  (test-case "invalidate null value"
-    (check-exn exn:fail? (lambda () (assemble (list (token 'EOF "" ""))))))
-
-  (test-case "invalidate double operator"
-    (check-exn exn:fail? (lambda () (assemble (list (token 'NUM 1 "")
-                                                    (token '+ #\+ "")
-                                                    (token '+ #\+ "")
-                                                    (token 'NUM 2 "")
-                                                    (token 'EOF "" ""))))))
-  (test-case "invalidate no operands"
-    (check-exn exn:fail? (lambda () (assemble (list (token 'NUM 1 "")
-                                                    (token '+ #\+ "")
-                                                    (token 'EOF "" "")))))))
+  (test-case "invalidate invalid node"
+    (check-exn exn:fail? (lambda () (assemble (node 'MUL
+                                                    (node 'NUM '() '() 3 "")
+                                                    (node 'NUM '() '() 5 "")
+                                                    #\+ ""))))))
