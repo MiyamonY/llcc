@@ -29,6 +29,13 @@
 
   (values (node 'NUM '() '() (string->number val) "") rem))
 
+;;  var : "a"-"z"
+(define (var chars)
+  (define val (car chars))
+  (define rem (cdr chars))
+
+  (values (node 'VAR '() '() (string val) "") rem))
+
 ;; add  : mul add'
 ;; add' : \epsilon
 ;; add' : "+" mul add'
@@ -79,6 +86,7 @@
              [(eq? (car rem) #\)) (values nodes (cdr rem))]
              [else (error "parenes is not pair" nodes rem)]))]
     [(char-numeric? (car chars)) (num chars)]
+    [(char-alphabetic? (car chars)) (var chars)]
     [else (error "parse error")]))
 
 (define (parse str)
@@ -136,6 +144,14 @@
                         #\/
                         "")))
 
+  (test-case "parse sinlge variable"
+    (check-equal? (parse "2+c")
+                  (node 'ADD
+                        (node 'NUM '() '() 2 "")
+                        (node 'VAR '()' () "c" "")
+                        #\+
+                        "")))
+
   (test-case "invalidate null exp"
     (check-exn exn:fail? (lambda () (parse ""))))
 
@@ -159,6 +175,6 @@
   (test-case "invalidate exp with undefined token"
     (for-each (lambda (exp)
                 (check-exn exn:fail? (lambda () (parse exp))))
-              '("a + 32"
+              '("ab + 32"
                 ".+3"
                 "2+3&5+x"))))
