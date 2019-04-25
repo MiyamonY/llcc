@@ -9,11 +9,24 @@
 (require  racket/contract)
 
 (provide (contract-out
-          [parse (string? . -> . (listof node?))])
+          [parse (string? . -> . (listof node?))]
+          [node-num (exact-integer? . -> . node?)]
+          [node-add (node? node?  . -> . node?)]
+          [node-sub (node? node?  . -> . node?)]
+          [node-mul (node? node?  . -> . node?)]
+          [node-div (node? node?  . -> . node?)])
+
          (struct-out node))
 
 (struct node (type left right value msg)
   #:transparent)
+
+(define (node-num n) (node 'NUM '() '() n ""))
+(define (node-add left right) (node 'ADD left right #\+ ""))
+(define (node-sub left right) (node 'ADD left right #\- ""))
+(define (node-mul left right) (node 'MUL left right #\* ""))
+(define (node-div left right) (node 'MUL left right #\/ ""))
+(define (node-var var) (node 'VAR '() '() var ""))
 
 (define (take-while ls f)
   (define (aux ls acc)
@@ -116,64 +129,30 @@
 (module+ test
   (require rackunit)
 
-  (test-case "simple num"
-    (let-values (([nodes rem] (num (string->list "123"))))
-      (check-equal? nodes (node 'NUM '() '() 123 ""))
-      (check-equal? rem '())))
-
   (test-case "parse single value"
     (check-equal? (parse "234; 1;")
-                  (list (node 'NUM '() '() 234 "")
-                        (node 'NUM '() '() 1 ""))))
+                  (list (node-num 234) (node-num 1))))
 
   (test-case "parse valid arithmetic exp"
     (check-equal? (parse "(234 + 2)*3/ 2; 2+3;")
-                  (list (node 'MUL
-                              (node 'MUL
-                                    (node 'ADD
-                                          (node 'NUM '() '() 234 "")
-                                          (node 'NUM '() '() 2 "")
-                                          #\+
-                                          "")
-                                    (node 'NUM '() '() 3 "")
-                                    #\*
-                                    "")
-                              (node 'NUM '() '() 2 "")
-                              #\/
-                              "")
-                        (node 'ADD
-                              (node 'NUM '() '() 2 "")
-                              (node 'NUM '() '() 3 "")
-                              #\+
-                              ""))))
+                  (list (node-div
+                         (node-mul
+                          (node-add (node-num 234) (node-num 2))
+                          (node-num 3))
+                         (node-num 2))
+                        (node-add
+                         (node-num 2)
+                         (node-num 3)))))
 
   (test-case "parse valid arithmetic exp"
     (check-equal? (parse "(234 + 2)/(3+3*2);")
-                  (list (node 'MUL
-                        (node 'ADD
-                              (node 'NUM '() '() 234 "")
-                              (node 'NUM '() '() 2 "")
-                              #\+
-                              "")
-                        (node 'ADD
-                              (node 'NUM '() '() 3 "")
-                              (node 'MUL
-                                    (node 'NUM '() '() 3 "")
-                                    (node 'NUM '() '() 2 "")
-                                    #\*
-                                    "")
-                              #\+
-                              "")
-                        #\/
-                        ""))))
+                  (list (node-div
+                         (node-add (node-num 234) (node-num 2))
+                         (node-add (node-num 3) (node-mul (node-num 3) (node-num 2)))))))
 
   (test-case "parse sinlge variable"
     (check-equal? (parse "2+c;")
-                  (list (node 'ADD
-                              (node 'NUM '() '() 2 "")
-                              (node 'VAR '()' () "c" "")
-                              #\+
-                              ""))))
+                  (list (node-add (node-num 2) (node-var "c")))))
 
   (test-case "invalidate null exp"
     (check-exn exn:fail? (lambda () (parse ""))))
