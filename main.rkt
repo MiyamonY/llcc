@@ -17,7 +17,7 @@
 
 (define (main)
   (define arith arith-to-compile)
-  (define parsed (parse-arith arith))
+  (define parsed (parse arith))
   (displayln (assemble parsed)))
 
 (main)

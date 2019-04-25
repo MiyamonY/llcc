@@ -9,14 +9,11 @@
 (require  racket/contract)
 
 (provide (contract-out
-          [parse (string? . -> . list?)])
+          [parse (string? . -> . (listof node?))])
          (struct-out node))
 
 (struct node (type left right value msg)
   #:transparent)
-
-(define (atoi c)
-  (- (char->integer c) (char->integer #\0)))
 
 (define (take-while ls f)
   (define (aux ls acc)
@@ -26,58 +23,79 @@
       [_ (values (list->string (reverse acc)) ls)]))
   (aux ls '()))
 
+;; num : ("0" - "9")+
 (define (num chars)
-  (define-values (val rest) (take-while chars char-numeric?))
-  (values (node 'NUM '() '() (string->number val) "") rest))
+  (define-values (val rem) (take-while chars char-numeric?))
 
+  (values (node 'NUM '() '() (string->number val) "") rem))
+
+;;  var : "a"-"z"
+(define (var chars)
+  (define val (car chars))
+  (define rem (cdr chars))
+
+  (values (node 'VAR '() '() (string val) "") rem))
+
+;; add  : mul add'
+;; add' : \epsilon
+;; add' : "+" mul add'
+;; add' : "-" mul add'
 (define (add chars)
-  (define-values (val rest) (mul chars))
-
   (define (add-sub nodes chars)
     (cond [(null? chars) (values nodes chars)]
           [(eq? (car chars) #\space) (add-sub nodes (cdr chars))]
           [(eq? (car chars) #\+)
-           (let-values (([node1 rest1] (mul (cdr chars))))
-             (add-sub (node 'ADD nodes node1 #\+ "") rest1))]
-          [(eq? (car rest) #\-)
-           (let-values (([node1 rest1] (mul (cdr chars))))
-             (add-sub (node 'ADD nodes node1 #\- "") rest1))]
+           (let-values (([node1 rem] (mul (cdr chars))))
+             (add-sub (node 'ADD nodes node1 #\+ "") rem))]
+          [(eq? (car chars) #\-)
+           (let-values (([node1 rem] (mul (cdr chars))))
+             (add-sub (node 'ADD nodes node1 #\- "") rem))]
           [else (values nodes chars)]))
-  (add-sub val rest))
 
+  (define-values (nodes rem) (mul chars))
+  (add-sub nodes rem))
+
+;; mul  : term mul'
+;; mul' : \epsilon
+;; mul' : "*" term mul'
+;; mul' : "/" term mul'
 (define (mul chars)
-  (define-values (term1 rest) (term chars))
-
   (define (mul-sub nodes chars)
     (cond [(null? chars) (values nodes chars)]
           [(eq? (car chars) #\space) (mul-sub nodes (cdr chars))]
           [(eq? (car chars) #\*)
-           (let-values (([term2 rest2] (term (cdr chars))))
-             (mul-sub (node 'MUL nodes term2 #\* "") rest2))]
+           (let-values (([term rem] (term (cdr chars))))
+             (mul-sub (node 'MUL nodes term #\* "") rem))]
           [(eq? (car chars) #\/)
-           (let-values (([term2 rest2] (term (cdr chars))))
-             (mul-sub (node 'MUL nodes term2 #\/ "") rest2))]
-          [else (values term1 chars)]))
+           (let-values (([term rem] (term (cdr chars))))
+             (mul-sub (node 'MUL nodes term #\/ "") rem))]
+          [else (values nodes chars)]))
 
-  (mul-sub term1 rest))
+  (define-values (nodes rem) (term chars))
+  (mul-sub nodes rem))
 
+;; term: num
+;; term: "(" add ")"
 (define (term chars)
   (cond
     [(null? chars) (error "invalid form")]
     [(eq? (car chars) #\space) (term (cdr chars))]
     [(eq? (car chars) #\()
-     (let-values (([nodes rest] (add (cdr chars))))
-       (cond [(null? rest) (error "reach eof")]
-             [(eq? (car rest) #\)) (values nodes (cdr rest))]
-             [else (error "parenes is not pair" nodes rest)]))]
-    [(or (eq? (car chars) #\+ ) (eq? (car chars) #\-)) (error "unexpected operator")]
-    [else (let-values (([node rest] (num chars)))
-            (values node rest))]))
+     (let-values (([nodes rem] (add (cdr chars))))
+       (cond [(null? rem) (error "reach eof")]
+             [(eq? (car rem) #\)) (values nodes (cdr rem))]
+             [else (error "parenes is not pair" nodes rem)]))]
+    [(char-numeric? (car chars)) (num chars)]
+    [(char-alphabetic? (car chars)) (var chars)]
+    [else (error "parse error")]))
 
 (define (parse str)
-  (define-values (node rest) (mul (string->list str)))
-  node)
+  (define-values (nodes rest) (add (string->list str)))
+  (if (null? rest)
+      (list nodes)
+      (error "unparsed token")))
 
+;; tests
 (module+ test
   (require rackunit)
 
@@ -88,12 +106,12 @@
 
   (test-case "parse single value"
     (check-equal? (parse "234")
-                  (node 'NUM '() '() 234 "")))
+                  (list (node 'NUM '() '() 234 ""))))
 
-  (test-case "parse arithmetic exp"
+  (test-case "parse valid arithmetic exp"
     (check-equal? (parse "(234 + 2)*3/ 2")
-                  (node 'MUL
-                        (node 'MUL
+                  (list (node 'MUL
+                              (node 'MUL
                               (node 'ADD
                                     (node 'NUM '() '() 234 "")
                                     (node 'NUM '() '() 2 "")
@@ -104,19 +122,59 @@
                               "")
                         (node 'NUM '() '() 2 "")
                         #\/
-                        "")))
+                        ""))))
+
+  (test-case "parse valid arithmetic exp"
+    (check-equal? (parse "(234 + 2)/(3+3*2)")
+                  (list (node 'MUL
+                        (node 'ADD
+                              (node 'NUM '() '() 234 "")
+                              (node 'NUM '() '() 2 "")
+                              #\+
+                              "")
+                        (node 'ADD
+                              (node 'NUM '() '() 3 "")
+                              (node 'MUL
+                                    (node 'NUM '() '() 3 "")
+                                    (node 'NUM '() '() 2 "")
+                                    #\*
+                                    "")
+                              #\+
+                              "")
+                        #\/
+                        ""))))
+
+  (test-case "parse sinlge variable"
+    (check-equal? (parse "2+c")
+                  (list (node 'ADD
+                              (node 'NUM '() '() 2 "")
+                              (node 'VAR '()' () "c" "")
+                              #\+
+                              ""))))
 
   (test-case "invalidate null exp"
     (check-exn exn:fail? (lambda () (parse ""))))
 
   (test-case "invalidate double operator"
-    (check-exn exn:fail? (lambda () (displayln (parse "1 + + 2")))))
+    (for-each (lambda (exp)
+                (check-exn exn:fail? (lambda () (parse exp))))
+              '("1 + + 2"
+                "1 * 2 + * 3"
+                "(1+2)**3")))
 
   (test-case "parensis is not pair"
-    (check-exn exn:fail? (lambda () (parse "1 + (2 + 4"))))
+    (for-each (lambda (exp)
+                (check-exn exn:fail? (lambda () (parse exp))))
+              '("1 + (2 + 4"
+                "1 + (2 + 4))"
+                "(1 + 2)) + 4")))
 
   (test-case "invalidate parallel parenthis"
-    (check-exn exn:fail? (lambda () (parse "(1+2) (3+4)"))))
+    (check-exn exn:fail? (lambda () (display (parse "(1+2) (3+4)")))))
 
   (test-case "invalidate exp with undefined token"
-    (check-exn exn:fail? (lambda () (parse "a + 32")))))
+    (for-each (lambda (exp)
+                (check-exn exn:fail? (lambda () (parse exp))))
+              '("ab + 32"
+                ".+3"
+                "2+3&5+x"))))
