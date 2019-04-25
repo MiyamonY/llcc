@@ -20,8 +20,8 @@
    (flatten  (list ".intel_syntax noprefix"
                    ".global main"
                    "main:"
-                   (map (add-indent 2) (flatten (map assemble-arith nodes)))
-                   "  pop rax"
+                   (map (add-indent 2)
+                        (flatten (map (lambda (node) (append (assemble-arith node) "pop rax")) nodes)))
                    "  ret"))
    "\n"))
 
@@ -61,15 +61,15 @@
                                   ".global main"
                                   "main:"
                                   (map (add-indent 2) expect)
-                                  "  pop rax"
                                   "  ret"))
                    "\n")))
 
   (test-case "assemble sinlge value"
-    (check-assemble? (list (node 'NUM '() '() 5 "")) '("push 5")))
+    ;; 5; 2+3;
+    (check-assemble? (list (node 'NUM '() '() 5 "")) '("push 5" "pop rax")))
 
   (test-case "assmeble arith"
-    ;; (2+3)/5*(3-10)
+    ;; (2+3)/5*(3-10); 2+3;
     (check-assemble? (list (node 'MUL
                                  (node 'MUL
                                        (node 'ADD
@@ -91,11 +91,18 @@
                                        "")
                                  #\*
                                  ""
-                                 ))
+                                 )
+                           (node 'ADD
+                                 (node 'NUM '() '() 2 "")
+                                 (node 'NUM '() '() 3 "")
+                                 #\+
+                                 ""))
                      '("push 2" "push 3" "pop rdi" "pop rax" "add rax, rdi" "push rax"
                                 "push 5" "pop rdi" "pop rax" "mov rdx, 0" "div rdi" "push rax"
                                 "push 3" "push 10" "pop rdi" "pop rax" "sub rax, rdi" "push rax"
-                                "pop rdi" "pop rax" "mul rdi" "push rax")))
+                                "pop rdi" "pop rax" "mul rdi" "push rax" "pop rax"
+                                "push 2" "push 3" "pop rdi" "pop rax" "add rax, rdi" "push rax"
+                                "pop rax")))
 
   (test-case "invalidate invalid token"
     (for-each

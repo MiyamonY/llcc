@@ -89,24 +89,28 @@
     [(char-alphabetic? (car chars)) (var chars)]
     [else (error "parse error")]))
 
-;; stmt: add;
+;; stmt: add ";"
 (define (stmt chars)
   (define-values (node rem) (add chars))
 
-  (if (eq? (car rem) #\;)
-      (values (list node) (cdr rem))
-      (error "statement is not end with ';'")))
+  (cond
+    [(null? rem) (error "reached eof")]
+    [(eq? (car rem) #\;) (values node (cdr rem))]
+    [else (error "statement is not end with ';'")]))
 
 ;; program : stmt program
 ;; program : \epsilon
 (define (program chars)
-  (stmt chars))
+  (define (aux nodes chars)
+    (define-values (node rem) (stmt chars))
+    (if (null? rem)
+        (reverse (cons node nodes))
+        (aux (cons node nodes) rem)))
+
+  (aux '() chars))
 
 (define (parse str)
-  (define-values (nodes rem)(program (string->list str)))
-  (if (null? rem)
-      nodes
-      (error "unparsed token" rem)))
+  (program (string->list str)))
 
 ;; tests
 (module+ test
@@ -118,24 +122,30 @@
       (check-equal? rem '())))
 
   (test-case "parse single value"
-    (check-equal? (parse "234;")
-                  (list (node 'NUM '() '() 234 ""))))
+    (check-equal? (parse "234; 1;")
+                  (list (node 'NUM '() '() 234 "")
+                        (node 'NUM '() '() 1 ""))))
 
   (test-case "parse valid arithmetic exp"
-    (check-equal? (parse "(234 + 2)*3/ 2;")
+    (check-equal? (parse "(234 + 2)*3/ 2; 2+3;")
                   (list (node 'MUL
                               (node 'MUL
-                              (node 'ADD
-                                    (node 'NUM '() '() 234 "")
-                                    (node 'NUM '() '() 2 "")
-                                    #\+
+                                    (node 'ADD
+                                          (node 'NUM '() '() 234 "")
+                                          (node 'NUM '() '() 2 "")
+                                          #\+
+                                          "")
+                                    (node 'NUM '() '() 3 "")
+                                    #\*
                                     "")
-                              (node 'NUM '() '() 3 "")
-                              #\*
+                              (node 'NUM '() '() 2 "")
+                              #\/
                               "")
-                        (node 'NUM '() '() 2 "")
-                        #\/
-                        ""))))
+                        (node 'ADD
+                              (node 'NUM '() '() 2 "")
+                              (node 'NUM '() '() 3 "")
+                              #\+
+                              ""))))
 
   (test-case "parse valid arithmetic exp"
     (check-equal? (parse "(234 + 2)/(3+3*2);")
@@ -169,7 +179,7 @@
     (check-exn exn:fail? (lambda () (parse ""))))
 
   (test-case "invalidate statement without ';'"
-    (check-exn exn:fail? (lambda () (parse "123*2"))))
+    (check-exn #rx"^reached eof$" (lambda () (parse "123*2"))))
 
   (test-case "invalidate double operator"
     (for-each (lambda (exp)
