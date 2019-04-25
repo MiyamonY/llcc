@@ -89,11 +89,24 @@
     [(char-alphabetic? (car chars)) (var chars)]
     [else (error "parse error")]))
 
+;; stmt: add;
+(define (stmt chars)
+  (define-values (node rem) (add chars))
+
+  (if (eq? (car rem) #\;)
+      (values (list node) (cdr rem))
+      (error "statement is not end with ';'")))
+
+;; program : stmt program
+;; program : \epsilon
+(define (program chars)
+  (stmt chars))
+
 (define (parse str)
-  (define-values (nodes rest) (add (string->list str)))
-  (if (null? rest)
-      (list nodes)
-      (error "unparsed token")))
+  (define-values (nodes rem)(program (string->list str)))
+  (if (null? rem)
+      nodes
+      (error "unparsed token" rem)))
 
 ;; tests
 (module+ test
@@ -105,11 +118,11 @@
       (check-equal? rem '())))
 
   (test-case "parse single value"
-    (check-equal? (parse "234")
+    (check-equal? (parse "234;")
                   (list (node 'NUM '() '() 234 ""))))
 
   (test-case "parse valid arithmetic exp"
-    (check-equal? (parse "(234 + 2)*3/ 2")
+    (check-equal? (parse "(234 + 2)*3/ 2;")
                   (list (node 'MUL
                               (node 'MUL
                               (node 'ADD
@@ -125,7 +138,7 @@
                         ""))))
 
   (test-case "parse valid arithmetic exp"
-    (check-equal? (parse "(234 + 2)/(3+3*2)")
+    (check-equal? (parse "(234 + 2)/(3+3*2);")
                   (list (node 'MUL
                         (node 'ADD
                               (node 'NUM '() '() 234 "")
@@ -145,7 +158,7 @@
                         ""))))
 
   (test-case "parse sinlge variable"
-    (check-equal? (parse "2+c")
+    (check-equal? (parse "2+c;")
                   (list (node 'ADD
                               (node 'NUM '() '() 2 "")
                               (node 'VAR '()' () "c" "")
@@ -155,26 +168,29 @@
   (test-case "invalidate null exp"
     (check-exn exn:fail? (lambda () (parse ""))))
 
+  (test-case "invalidate statement without ';'"
+    (check-exn exn:fail? (lambda () (parse "123*2"))))
+
   (test-case "invalidate double operator"
     (for-each (lambda (exp)
                 (check-exn exn:fail? (lambda () (parse exp))))
-              '("1 + + 2"
-                "1 * 2 + * 3"
-                "(1+2)**3")))
+              '("1 + + 2;"
+                "1 * 2 + * 3;"
+                "(1+2)**3;")))
 
   (test-case "parensis is not pair"
     (for-each (lambda (exp)
                 (check-exn exn:fail? (lambda () (parse exp))))
-              '("1 + (2 + 4"
-                "1 + (2 + 4))"
-                "(1 + 2)) + 4")))
+              '("1 + (2 + 4;"
+                "1 + (2 + 4));"
+                "(1 + 2)) + 4;")))
 
   (test-case "invalidate parallel parenthis"
-    (check-exn exn:fail? (lambda () (display (parse "(1+2) (3+4)")))))
+    (check-exn exn:fail? (lambda () (display (parse "(1+2) (3+4);")))))
 
   (test-case "invalidate exp with undefined token"
     (for-each (lambda (exp)
                 (check-exn exn:fail? (lambda () (parse exp))))
-              '("ab + 32"
-                ".+3"
-                "2+3&5+x"))))
+              '("ab + 32;"
+                ".+3;"
+                "2+3&5+x;"))))
