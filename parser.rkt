@@ -55,19 +55,19 @@
 ;; add' : "+" mul add'
 ;; add' : "-" mul add'
 (define (add chars)
-  (define (add-sub nodes chars)
+  (define (aux nodes chars)
     (cond [(null? chars) (values nodes chars)]
-          [(eq? (car chars) #\space) (add-sub nodes (cdr chars))]
+          [(eq? (car chars) #\space) (aux nodes (cdr chars))]
           [(eq? (car chars) #\+)
            (let-values (([node1 rem] (mul (cdr chars))))
-             (add-sub (node 'ADD nodes node1 #\+ "") rem))]
+             (aux (node-add nodes node1) rem))]
           [(eq? (car chars) #\-)
            (let-values (([node1 rem] (mul (cdr chars))))
-             (add-sub (node 'ADD nodes node1 #\- "") rem))]
+             (aux (node-div nodes node1) rem))]
           [else (values nodes chars)]))
 
   (define-values (nodes rem) (mul chars))
-  (add-sub nodes rem))
+  (aux nodes rem))
 
 ;; mul  : term mul'
 ;; mul' : \epsilon
@@ -79,10 +79,10 @@
           [(eq? (car chars) #\space) (mul-sub nodes (cdr chars))]
           [(eq? (car chars) #\*)
            (let-values (([term rem] (term (cdr chars))))
-             (mul-sub (node 'MUL nodes term #\* "") rem))]
+             (mul-sub (node-mul nodes term) rem))]
           [(eq? (car chars) #\/)
            (let-values (([term rem] (term (cdr chars))))
-             (mul-sub (node 'MUL nodes term #\/ "") rem))]
+             (mul-sub (node-div nodes term) rem))]
           [else (values nodes chars)]))
 
   (define-values (nodes rem) (term chars))
