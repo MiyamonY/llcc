@@ -27,6 +27,7 @@
 (define (node-mul left right) (node 'MUL left right #\* ""))
 (define (node-div left right) (node 'MUL left right #\/ ""))
 (define (node-var var) (node 'VAR '() '() var ""))
+(define (node-assign left right) (node 'ASSIGN left right #\= ""))
 
 (define (take-while ls f)
   (define (aux ls acc)
@@ -102,9 +103,21 @@
     [(char-alphabetic? (car chars)) (var chars)]
     [else (error "parse error")]))
 
-;; stmt: add ";"
-(define (stmt chars)
+;; assign: add
+;; assign: add "=" assing
+(define (assign chars)
   (define-values (node rem) (add chars))
+
+  (cond
+    [(null? rem) (error "reached eof")]
+    [(eq? (car rem) #\=)
+     (let-values ([(node1 rem1) (assign (cdr rem))])
+       (values (node-assign node node1) rem1))]
+    [else (values node rem)]))
+
+;; stmt: assign ";"
+(define (stmt chars)
+  (define-values (node rem) (assign chars))
 
   (cond
     [(null? rem) (error "reached eof")]
@@ -129,30 +142,20 @@
 (module+ test
   (require rackunit)
 
-  (test-case "parse single value"
-    (check-equal? (parse "234; 1;")
-                  (list (node-num 234) (node-num 1))))
-
   (test-case "parse valid arithmetic exp"
-    (check-equal? (parse "(234 + 2)*3/ 2; 2+3;")
-                  (list (node-div
-                         (node-mul
-                          (node-add (node-num 234) (node-num 2))
-                          (node-num 3))
-                         (node-num 2))
-                        (node-add
-                         (node-num 2)
-                         (node-num 3)))))
-
-  (test-case "parse valid arithmetic exp"
-    (check-equal? (parse "(234 + 2)/(3+3*2);")
-                  (list (node-div
-                         (node-add (node-num 234) (node-num 2))
-                         (node-add (node-num 3) (node-mul (node-num 3) (node-num 2)))))))
-
-  (test-case "parse sinlge variable"
-    (check-equal? (parse "2+c;")
-                  (list (node-add (node-num 2) (node-var "c")))))
+    (check-equal? (parse "a = b=3; (234 + 2)*a/ (a+b); a+b = 1;")
+                  (list
+                   (node-assign (node-var "a") (node-assign (node-var "b") (node-num 3)))
+                   (node-div
+                    (node-mul
+                     (node-add (node-num 234) (node-num 2))
+                     (node-var "a"))
+                    (node-add
+                     (node-var "a")
+                     (node-var "b")))
+                   (node-assign
+                    (node-add (node-var "a") (node-var "b"))
+                    (node-num 1)))))
 
   (test-case "invalidate null exp"
     (check-exn exn:fail? (lambda () (parse ""))))
