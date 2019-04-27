@@ -89,6 +89,7 @@
   (mul-sub nodes rem))
 
 ;; term: num
+;; term: var
 ;; term: "(" add ")"
 (define (term chars)
   (cond
