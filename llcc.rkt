@@ -2,10 +2,13 @@
 
 (require racket/cmdline)
 
-(define expr
-  (command-line
-   #:args (expr)
-   expr))
+(struct token (type val char-at))
+
+(define (raise-error expr char-at msg)
+  (displayln expr)
+  (displayln (format "~a^" (make-string char-at #\space)))
+  (displayln msg)
+  (raise 'invalid-token))
 
 (define (take-while lst f)
   (cond
@@ -27,34 +30,47 @@
                 (take-while (string->list "") char-numeric?)])
     (check-equal? taken '())))
 
-(struct token (type val input))
+(define (tokenize expr)
+  (define (tokenize-rec lst char-at)
+    (cond ((null? lst) '())
+          ((equal? (car lst) #\space)
+           (tokenize-rec (cdr lst) (+ 1 char-at)))
+          ((equal? (car lst) #\+)
+           (cons (token '+ #\+ char-at)
+                 (tokenize-rec (cdr lst) (+ char-at))))
+          ((equal? (car lst) #\-)
+           (cons (token '- #\- char-at)
+                 (tokenize-rec (cdr lst) (+ char-at))))
+          ((char-numeric? (car lst))
+           (define-values (taken rest) (take-while lst char-numeric?))
+           (const (token 'number (list->string taken) (list->string lst))
+                  (tokenize-rec rest (+ (length taken) char-at))))
+          (else
+           (raise-error "failed: invalid value" (car lst)))))
+  (tokenize-rec (string->list expr) 0))
 
-(define (tokenize lst)
-  (cond ((null? lst) '())
-        ((equal? (car lst) #\space) (tokenize (cdr lst)))
-        ((equal? (car lst) #\+)
-         (cons (token '+ #\+ "") (tokenize (cdr lst))))
-        ((equal? (car lst) #\-)
-         (cons (token '- #\- "") (tokenize (cdr lst))))
-        ((char-numeric? (car lst))
-         (define-values (taken rest) (take-while lst char-numeric?))
-         (const (token 'number (list->string taken) "")
-                (tokenize rest)))
-        (else
-         (error "failed: invalid value" (car lst)))))
 
-(define (parse lst)
-  (cond ((null? lst) '())
-        ((eq? (car lst) #\+)
-         (define-values (taken rest) (take-while (cdr lst) char-numeric?))
-         (cons (format "\tadd rax, ~a" (list->string taken)) (parse rest)))
-        ((eq? (car lst) #\-)
-         (define-values (taken rest) (take-while (cdr lst) char-numeric?))
-         (cons (format "\tsub rax, ~a" (list->string taken)) (parse rest)))
-        ((char-numeric? (car lst))
-         (define-values (taken rest) (take-while lst char-numeric?))
-         (cons (format "\tmov rax, ~a" (list->string taken)) (parse rest)))
-        (else (error "failed: invalid value" (car lst)))))
+(define (parse expr)
+  (define (parse-rec tokens)
+    (cond ((null? tokens) '())
+          (else
+           (define token (car tokens))
+           (match (token-type token)
+             ['+
+              (cons (format "\tadd rax, ~a" (token-val (cadr tokens)))
+                    (parse-rec (cddr token)))]
+             ['-
+              (cons (format "\tsub rax, ~a" (token-val (cadr tokens)))
+                    (parse-rec (cddr token)))]
+             [else (raise-error expr (token-char-at token) "invalid token")]))))
+
+  (define tokens (tokenize expr))
+  (define first-token (car tokens))
+  (unless (equal? (token-type first-token) 'number)
+    (raise-error expr (token-char-at token) "invalid token"))
+
+  (cons (format "\tmov rax,~a" (token-val first-token))
+        (parse-rec (cdr tokens))))
 
 (module+ test
   (check-equal?
@@ -65,11 +81,16 @@
   (check-equal?
    (parse (string->list "12+34-12")) '("\tmov rax, 12" "\tadd rax, 34" "\tsub rax, 12")))
 
+(define expr
+  (command-line
+   #:args (expr)
+   expr))
+
 (define (main)
   (displayln ".intel_syntax noprefix")
   (displayln ".global main")
   (displayln "main:")
-  (displayln (string-join (parse (string->list expr)) "\n"))
+  (displayln (string-join (parse expr) "\n"))
   (displayln "\tret"))
 
 (main)
