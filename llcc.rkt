@@ -27,6 +27,21 @@
                 (take-while (string->list "") char-numeric?)])
     (check-equal? taken '())))
 
+(struct token (type val input))
+
+(define (tokenize lst)
+  (cond ((null? lst) '())
+        ((equal? (car lst) #\space) (tokenize (cdr lst)))
+        ((equal? (car lst) #\+)
+         (cons (token '+ #\+ "") (tokenize (cdr lst))))
+        ((equal? (car lst) #\-)
+         (cons (token '- #\- "") (tokenize (cdr lst))))
+        ((char-numeric? (car lst))
+         (define-values (taken rest) (take-while lst char-numeric?))
+         (const (token 'number (list->string taken) "")
+                (tokenize rest)))
+        (else
+         (error "failed: invalid value" (car lst)))))
 
 (define (parse lst)
   (cond ((null? lst) '())
