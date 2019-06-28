@@ -142,7 +142,7 @@
           [else
            (parse-error input (token-char-at token0) "token must be number or (")]))
 
-  ;; mul = term ("*" term | "-" term)
+  ;; mul = term ("*" term | "/" term)*
   (define (mul tokens)
     (define (mul-rec term0 tokens)
       (cond [(null? tokens) (values term0 tokens)]
