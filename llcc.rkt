@@ -129,7 +129,7 @@
             [else (values term0 tokens)]))
     (call-with-values (lambda () (term tokens)) mul-rec))
 
-  ;; expr = mul ("+" mul)*
+  ;; expr = mul ("+" mul | "-" mul)*
   (define (expr tokens)
     (define (expr-rec mul0 tokens)
       (cond [(null? tokens) (values mul0 tokens)]
