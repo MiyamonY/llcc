@@ -5,13 +5,31 @@
 (struct token (type val char-at)
   #:transparent)
 
+(define (token-null) null)
+
 (define (token-number num char-at)
   (token 'number num char-at))
-(define (token-plus char-at)
-  (token 'operator #\+ char-at))
-(define (token-minus char-at)
-  (token 'operator #\- char-at))
 
+(define (token-operator op char-at)
+  (token 'operator op char-at))
+
+(define (token-plus char-at)
+  (token-operator #\+ char-at))
+
+(define (token-sub char-at)
+  (token-operator #\- char-at))
+
+(define (token-number? token)
+  (equal? (token-type token) 'number))
+
+(define (token-operator? token)
+  (equal? (token-type token) 'operator))
+
+(define (token-add? token)
+  (and (token-operator? token) (equal? (token-val token) #\+)))
+
+(define (token-sub? token)
+  (and (token-operator? token) (equal? (token-val token) #\-)))
 
 (define (take-while lst f)
   (cond
@@ -44,11 +62,11 @@
            (tokenize-rec (cdr lst) (add1 char-at)))
           ((or (equal? (car lst) #\+)
                (equal? (car lst) #\-))
-           (cons (token 'operator (car lst) char-at)
+           (cons (token-operator (car lst) char-at)
                  (tokenize-rec (cdr lst) (add1 char-at))))
           ((char-numeric? (car lst))
            (define-values (taken rest) (take-while lst char-numeric?))
-           (cons (token 'number (string->number (list->string taken)) char-at)
+           (cons (token-number (string->number (list->string taken)) char-at)
                  (tokenize-rec rest (+ (length taken) char-at))))
           (else
            (tokenize-error expr char-at "unexpected value"))))
@@ -65,57 +83,107 @@
   (raise-user-error
    'parse-error  "\n~a\n~a^\n~a\n" expr (make-string char-at #\space) msg))
 
-(define (parse expr)
-  (define (parse-rec tokens)
-    (cond ((null? tokens) '())
-          (else
-           (define top-token (car tokens))
-           (match (token-type top-token)
-             ['operator
-              (define operator top-token)
+(struct node (type left right val)
+  #:transparent)
 
-              (when (null? (cdr tokens))
-                (parse-error expr (token-char-at top-token) "expression ended unexpectedly"))
-              (define operand (cadr tokens))
-              (unless (equal? (token-type operand) 'number)
-                (parse-error expr (token-char-at operand) "invalid token"))
+(define (node-number num)
+  (node 'number null null num))
 
-              (define fmt (case (token-val operator)
-                            [(#\+) "\tadd rax, ~a"]
-                            [(#\-) "\tsub rax, ~a"]
-                            [else (parse-error expr (token-char-at operand) "invalid operator")]))
+(define (node-operator left right op)
+  (node 'operator left right op))
 
-              (cons (format fmt (token-val operand)) (parse-rec (cddr tokens)))]
-             [else (parse-error expr (token-char-at top-token) "invalid token")]))))
+(define (node-plus left right)
+  (node-operator left right #\+))
 
-  (define tokens (tokenize expr))
-  (define first-token (car tokens))
-  (unless (equal? (token-type first-token) 'number)
-    (parse-error expr (token-char-at token) "invalid token"))
+(define (node-minus left right)
+  (node-operator left right #\-))
 
-  (cons (format "\tmov rax, ~a" (token-val first-token))
-        (parse-rec (cdr tokens))))
+(define (node-number? node)
+  (equal? (node-type node) 'number))
+
+(define (node-operator? node)
+  (equal? (node-type node) 'operator))
+
+(define (parse input)
+  ;; term = num
+  (define (term tokens)
+    (when (null? tokens)
+      (parse-error input (string-length input) "expression ends unexpectedly"))
+
+    (define token0 (car tokens))
+    (unless (token-number? token0)
+      (parse-error input (token-char-at token0) "token must be number"))
+    (values (node 'number null null (token-val token0)) (cdr tokens)))
+
+  ;; expr = term ("+" term | "-" term)*
+  (define (expr tokens)
+    (define (expr-rec term0 tokens)
+      (if (null? tokens)
+          term0
+          (let ([operator (car tokens)])
+            (unless (token-operator? operator)
+              (parse-error input (token-char-at operator) "token must be operaotr"))
+            (let-values ([(term1 rest) (term (cdr tokens))])
+              (expr-rec (node-operator term0 term1 (token-val operator)) rest)))))
+
+    (define-values (term0 rest) (term tokens))
+    (expr-rec term0 rest))
+
+  (expr (tokenize input)))
 
 (module+ test
   (check-equal?
-   (parse "12")
-   '("\tmov rax, 12"))
+   (parse "12") (node-number 12))
+
   (check-equal?
    (parse "12+34")
-   '("\tmov rax, 12" "\tadd rax, 34"))
+   (node-plus (node-number 12) (node-number 34)))
+
   (check-equal?
    (parse " 12+ 34- 12")
-   '("\tmov rax, 12" "\tadd rax, 34" "\tsub rax, 12"))
+   (node-minus (node-plus (node-number 12) (node-number 34))
+               (node-number 12)))
 
   (check-exn #rx"parse-error" (lambda () (parse "12+")))
   (check-exn #rx"parse-error" (lambda () (parse "12+ +"))))
 
+(define (push num)
+  (format "\tpush ~a\n" num))
+
+(define (add)
+  (string-join '("\tpop rdi"
+                 "\tpop rax"
+                 "\tadd rax, rdi"
+                 "\tpush rax")
+               "\n"
+               #:after-last "\n"))
+
+(define (sub)
+  (string-join '("\tpop rdi"
+                 "\tpop rax"
+                 "\tsub rax, rdi"
+                 "\tpush rax")
+               "\n"
+               #:after-last "\n"))
+
+(define (generate nodes)
+  (define (generate-rec nodes)
+    (if (null? nodes)
+        ""
+        (cond [(node-number? nodes) (push (node-val nodes))]
+              [(node-operator? nodes)
+               (string-append (generate-rec (node-left nodes))
+                              (generate-rec (node-right nodes))
+                              (case (node-val nodes)
+                                [(#\+) (add)]
+                                [(#\-) (sub)]))])))
+  (string-append (generate-rec nodes) "\tpop rax\n"))
+
 (define (main expr)
-  (define orders (parse expr))
   (displayln ".intel_syntax noprefix")
   (displayln ".global main")
   (displayln "main:")
-  (displayln (string-join orders "\n"))
+  (displayln  (generate (parse expr)))
   (displayln "\tret"))
 
 (module+ main
