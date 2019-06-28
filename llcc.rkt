@@ -212,14 +212,17 @@
                                 [(#\*) (mul)]
                                 [(#\/) (div)])
                               (push-result))])))
-  (string-append (generate-rec nodes) (pop-result)))
+
+  (string-append
+   ".intel_syntax noprefix\n"
+   ".global main\n"
+   "main:\n"
+   (generate-rec nodes)
+   (pop-result)
+   "\tret"))
 
 (define (main expr)
-  (displayln ".intel_syntax noprefix")
-  (displayln ".global main")
-  (displayln "main:")
-  (displayln  (generate (parse expr)))
-  (displayln "\tret"))
+  (displayln (generate (parse expr))))
 
 (module+ main
   (define expr
