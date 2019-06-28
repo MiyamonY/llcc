@@ -31,6 +31,9 @@
 (define (token-sub? token)
   (and (token-operator? token) (equal? (token-val token) #\-)))
 
+(define (token-mul? token)
+  (and (token-operator? token) (equal? (token-val token) #\*)))
+
 (define (take-while lst f)
   (cond
     ((null? lst) (values '() '()))
@@ -61,7 +64,8 @@
           ((equal? (car lst) #\space)
            (tokenize-rec (cdr lst) (add1 char-at)))
           ((or (equal? (car lst) #\+)
-               (equal? (car lst) #\-))
+               (equal? (car lst) #\-)
+               (equal? (car lst) #\*))
            (cons (token-operator (car lst) char-at)
                  (tokenize-rec (cdr lst) (add1 char-at))))
           ((char-numeric? (car lst))
@@ -113,23 +117,38 @@
     (define token0 (car tokens))
     (unless (token-number? token0)
       (parse-error input (token-char-at token0) "token must be number"))
-    (values (node 'number null null (token-val token0)) (cdr tokens)))
+    (values (node-number (token-val token0)) (cdr tokens)))
 
-  ;; expr = term ("+" term | "-" term)*
+  ;; mul = term ("*" term)
+  (define (mul tokens)
+    (define (mul-rec term0 tokens)
+      (cond [(null? tokens) (values term0 tokens)]
+            [(token-mul? (car tokens))
+             (let-values ([(term1 remaining) (term (cdr tokens))])
+               (mul-rec (node-operator term0 term1 (token-val (car tokens))) remaining))]
+            [else (values term0 tokens)]))
+
+    (define-values (term0 remaining) (term tokens))
+    (mul-rec term0 remaining))
+
+  ;; expr = mul ("+" mul)*
   (define (expr tokens)
-    (define (expr-rec term0 tokens)
-      (if (null? tokens)
-          term0
-          (let ([operator (car tokens)])
-            (unless (token-operator? operator)
-              (parse-error input (token-char-at operator) "token must be operaotr"))
-            (let-values ([(term1 rest) (term (cdr tokens))])
-              (expr-rec (node-operator term0 term1 (token-val operator)) rest)))))
+    (define (expr-rec mul0 tokens)
+      (cond [(null? tokens) (values mul0 tokens)]
+            [(or (token-add? (car tokens)) (token-sub? (car tokens)))
+             (let-values ([(operator) (car tokens)]
+                          [(mul1 remaining) (mul (cdr tokens))])
+               (expr-rec (node-operator mul0 mul1 (token-val operator)) remaining))]
+            [else (values mul0 tokens)]))
 
-    (define-values (term0 rest) (term tokens))
-    (expr-rec term0 rest))
+    (define-values (mul0 remaining) (mul tokens))
+    (expr-rec mul0 remaining))
 
-  (expr (tokenize input)))
+  (define-values (nodes remaining) (expr (tokenize input)))
+
+  (unless (null? remaining)
+    (parse-error input (token-char-at (car remaining)) "unused token"))
+  nodes)
 
 (module+ test
   (check-equal?
@@ -145,7 +164,8 @@
                (node-number 12)))
 
   (check-exn #rx"parse-error" (lambda () (parse "12+")))
-  (check-exn #rx"parse-error" (lambda () (parse "12+ +"))))
+  (check-exn #rx"parse-error" (lambda () (parse "12+ +")))
+  (check-exn #rx"parse-error" (lambda () (parse " 12+ 34 12"))))
 
 (define (push num)
   (format "\tpush ~a\n" num))
@@ -166,6 +186,14 @@
                "\n"
                #:after-last "\n"))
 
+(define (mul)
+  (string-join '("\tpop rdi"
+                 "\tpop rax"
+                 "\timul rax, rdi"
+                 "\tpush rax")
+               "\n"
+               #:after-last "\n"))
+
 (define (generate nodes)
   (define (generate-rec nodes)
     (if (null? nodes)
@@ -176,7 +204,8 @@
                               (generate-rec (node-right nodes))
                               (case (node-val nodes)
                                 [(#\+) (add)]
-                                [(#\-) (sub)]))])))
+                                [(#\-) (sub)]
+                                [(#\*) (mul)]))])))
   (string-append (generate-rec nodes) "\tpop rax\n"))
 
 (define (main expr)
