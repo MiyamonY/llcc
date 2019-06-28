@@ -221,7 +221,7 @@
    (pop-result)
    "\tret"))
 
-(define (main expr)
+(define (compile expr)
   (displayln (generate (parse expr))))
 
 (module+ main
@@ -230,4 +230,4 @@
      #:args (expr)
      expr))
 
-  (main expr))
+  (compile expr))
