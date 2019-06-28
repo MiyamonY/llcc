@@ -19,6 +19,12 @@
 (define (token-sub char-at)
   (token-operator #\- char-at))
 
+(define (token-lparen char-at)
+  (token 'lparen #\( char-at))
+
+(define (token-rparen char-at)
+  (token 'rparen #\) char-at))
+
 (define (token-number? token)
   (equal? (token-type token) 'number))
 
@@ -36,6 +42,12 @@
 
 (define (token-div? token)
   (and (token-operator? token) (equal? (token-val token) #\/)))
+
+(define (token-lparen? token)
+  (equal? (token-type token) 'lparen))
+
+(define (token-rparen? token)
+  (equal? (token-type token) 'rparen))
 
 (define (take-while lst f)
   (cond
@@ -63,12 +75,16 @@
 
 (define (tokenize expr)
   (define (tokenize-rec lst char-at)
-    (cond ((null? lst) '())
-          ((equal? (car lst) #\space)
-           (tokenize-rec (cdr lst) (add1 char-at)))
-          ((member (car lst) '(#\+ #\- #\* #\/))
+    (cond [(null? lst) '()]
+          [(equal? (car lst) #\space)
+           (tokenize-rec (cdr lst) (add1 char-at))]
+          [(member (car lst) '(#\+ #\- #\* #\/))
            (cons (token-operator (car lst) char-at)
-                 (tokenize-rec (cdr lst) (add1 char-at))))
+                 (tokenize-rec (cdr lst) (add1 char-at)))]
+          [(equal? (car lst) #\()
+           (cons (token-lparen char-at) (tokenize-rec (cdr lst) (add1 char-at)))]
+          [(equal? (car lst) #\))
+           (cons (token-rparen char-at) (tokenize-rec (cdr lst) (add1 char-at)))]
           ((char-numeric? (car lst))
            (define-values (taken rest) (take-while lst char-numeric?))
            (cons (token-number (string->number (list->string taken)) char-at)
@@ -110,15 +126,21 @@
   (equal? (node-type node) 'operator))
 
 (define (parse input)
-  ;; term = num
+  ;; term = num | "(" expr ")""
   (define (term tokens)
     (when (null? tokens)
       (parse-error input (string-length input) "expression ends unexpectedly"))
 
     (define token0 (car tokens))
-    (unless (token-number? token0)
-      (parse-error input (token-char-at token0) "token must be number"))
-    (values (node-number (token-val token0)) (cdr tokens)))
+    (cond [(token-number? token0)
+           (values (node-number (token-val token0)) (cdr tokens))]
+          [(token-lparen? token0)
+           (define-values (expr0 remaining) (expr (cdr tokens)))
+           (unless (token-rparen? (car remaining))
+             (parse-error input (token-char-at (car remaining)) "paren is not closed"))
+           (values expr0 (cdr remaining))]
+          [else
+           (parse-error input (token-char-at token0) "token must be number or (")]))
 
   ;; mul = term ("*" term | "-" term)
   (define (mul tokens)
