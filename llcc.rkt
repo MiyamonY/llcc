@@ -34,6 +34,9 @@
 (define (token-mul? token)
   (and (token-operator? token) (equal? (token-val token) #\*)))
 
+(define (token-div? token)
+  (and (token-operator? token) (equal? (token-val token) #\/)))
+
 (define (take-while lst f)
   (cond
     ((null? lst) (values '() '()))
@@ -63,9 +66,7 @@
     (cond ((null? lst) '())
           ((equal? (car lst) #\space)
            (tokenize-rec (cdr lst) (add1 char-at)))
-          ((or (equal? (car lst) #\+)
-               (equal? (car lst) #\-)
-               (equal? (car lst) #\*))
+          ((member (car lst) '(#\+ #\- #\* #\/))
            (cons (token-operator (car lst) char-at)
                  (tokenize-rec (cdr lst) (add1 char-at))))
           ((char-numeric? (car lst))
@@ -119,11 +120,11 @@
       (parse-error input (token-char-at token0) "token must be number"))
     (values (node-number (token-val token0)) (cdr tokens)))
 
-  ;; mul = term ("*" term)
+  ;; mul = term ("*" term | "-" term)
   (define (mul tokens)
     (define (mul-rec term0 tokens)
       (cond [(null? tokens) (values term0 tokens)]
-            [(token-mul? (car tokens))
+            [(or (token-mul? (car tokens)) (token-div? (car tokens)))
              (let-values ([(term1 remaining) (term (cdr tokens))])
                (mul-rec (node-operator term0 term1 (token-val (car tokens))) remaining))]
             [else (values term0 tokens)]))
@@ -167,28 +168,33 @@
 (define (push num)
   (format "\tpush ~a\n" num))
 
-(define (add)
-  (string-join '("\tpop rdi"
-                 "\tpop rax"
-                 "\tadd rax, rdi"
-                 "\tpush rax")
-               "\n"
+(define (push-result)
+  "\tpush rax\n")
+
+(define (pop-operands)
+  (string-join '("pop rdi"
+                 "pop rax")
+               "\n\t"
+               #:before-first "\t"
                #:after-last "\n"))
+
+(define (pop-result)
+  "\tpop rax\n")
+
+(define (add)
+  "\tadd rax, rdi\n")
 
 (define (sub)
-  (string-join '("\tpop rdi"
-                 "\tpop rax"
-                 "\tsub rax, rdi"
-                 "\tpush rax")
-               "\n"
-               #:after-last "\n"))
+  "\tsub rax, rdi\n")
 
 (define (mul)
-  (string-join '("\tpop rdi"
-                 "\tpop rax"
-                 "\timul rax, rdi"
-                 "\tpush rax")
-               "\n"
+  "\timul rax, rdi\n")
+
+(define (div)
+  (string-join '("cqo"
+                 "div rdi")
+               "\n\t"
+               #:before-first "\t"
                #:after-last "\n"))
 
 (define (generate nodes)
@@ -199,11 +205,14 @@
               [(node-operator? nodes)
                (string-append (generate-rec (node-left nodes))
                               (generate-rec (node-right nodes))
+                              (pop-operands)
                               (case (node-val nodes)
                                 [(#\+) (add)]
                                 [(#\-) (sub)]
-                                [(#\*) (mul)]))])))
-  (string-append (generate-rec nodes) "\tpop rax\n"))
+                                [(#\*) (mul)]
+                                [(#\/) (div)])
+                              (push-result))])))
+  (string-append (generate-rec nodes) (pop-result)))
 
 (define (main expr)
   (displayln ".intel_syntax noprefix")
