@@ -127,9 +127,7 @@
              (let-values ([(term1 remaining) (term (cdr tokens))])
                (mul-rec (node-operator term0 term1 (token-val (car tokens))) remaining))]
             [else (values term0 tokens)]))
-
-    (define-values (term0 remaining) (term tokens))
-    (mul-rec term0 remaining))
+    (call-with-values (lambda () (term tokens)) mul-rec))
 
   ;; expr = mul ("+" mul)*
   (define (expr tokens)
@@ -141,8 +139,7 @@
                (expr-rec (node-operator mul0 mul1 (token-val operator)) remaining))]
             [else (values mul0 tokens)]))
 
-    (define-values (mul0 remaining) (mul tokens))
-    (expr-rec mul0 remaining))
+    (call-with-values (lambda () (mul tokens)) expr-rec))
 
   (define-values (nodes remaining) (expr (tokenize input)))
 
