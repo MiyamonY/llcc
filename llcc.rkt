@@ -79,22 +79,27 @@
   (raise-user-error
    'tokenize-error  "\n~a\n~a^\n~a\n" expr (make-string char-at #\space) msg))
 
+(define (peek lst)
+  (if (null? lst)
+      #f
+      (first lst)))
+
 (define (tokenize expr)
   (define (tokenize-rec lst char-at)
-    (cond [(null? lst) '()]
-          [(equal? (car lst) #\space)
-           (tokenize-rec (cdr lst) (add1 char-at))]
-          [(member (car lst) '(#\+ #\- #\* #\/))
-           (cons (token-operator (car lst) char-at)
-                 (tokenize-rec (cdr lst) (add1 char-at)))]
-          [(equal? (car lst) #\()
-           (cons (token-lparen char-at) (tokenize-rec (cdr lst) (add1 char-at)))]
-          [(equal? (car lst) #\))
-           (cons (token-rparen char-at) (tokenize-rec (cdr lst) (add1 char-at)))]
-          ((char-numeric? (car lst))
-           (define-values (taken rest) (take-while lst char-numeric?))
+    (cond [(not (peek lst)) '()]
+          [(equal? (peek lst) #\space)
+           (tokenize-rec (rest lst) (add1 char-at))]
+          [(member (peek lst) '(#\+ #\- #\* #\/))
+           (cons (token-operator (peek lst) char-at)
+                 (tokenize-rec (rest lst) (add1 char-at)))]
+          [(equal? (peek lst) #\()
+           (cons (token-lparen char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+          [(equal? (peek lst) #\))
+           (cons (token-rparen char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+          ((char-numeric? (peek lst))
+           (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number (string->number (list->string taken)) char-at)
-                 (tokenize-rec rest (+ (length taken) char-at))))
+                 (tokenize-rec remaining (+ (length taken) char-at))))
           (else
            (tokenize-error expr char-at "unexpected value"))))
 
