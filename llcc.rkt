@@ -46,6 +46,9 @@
 (define (token-ge char-at)
   (token-operator ">=" char-at))
 
+(define (token-assign char-at)
+  (token-operator #\= char-at))
+
 (define (token-number? token)
   (equal? (token-type token) 'number))
 
@@ -150,7 +153,7 @@
                  [(not next)
                   (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
-                  (tokenize-error expr (add1 char-at) "unexpected value")])]
+                  (cons (token-assign char-at) (tokenize-rec (cddr lst) (add1 char-at)))])]
           [(equal? (peek lst) #\<)
            (define next (peek (rest lst)))
            (cond [(equal? next #\=)
