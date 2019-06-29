@@ -31,6 +31,9 @@
 (define (token-neq char-at)
   (token 'operator "!=" char-at))
 
+(define (token-lt char-at)
+  (token-operator #\< char-at))
+
 (define (token-number? token)
   (equal? (token-type token) 'number))
 
@@ -66,6 +69,9 @@
 
 (define (token-neq? token)
   (and (token-operator? token) (equal? (token-val token) "!=")))
+
+(define (token-lt? token)
+  (and (token-operator? token) (equal? (token-val token) #\<)))
 
 (define (take-while lst f)
   (cond
@@ -124,6 +130,8 @@
                   (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
                   (tokenize-error expr (add1 char-at) "unexpected value")])]
+          [(equal? (peek lst) #\<)
+           (cons (token-lt char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           ((char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number (string->number (list->string taken)) char-at)
@@ -164,6 +172,9 @@
 (define (node-neq left right)
   (node-operator left right "!="))
 
+(define (node-lt left right)
+  (node-operator left right #\<))
+
 (define (node-number? node)
   (equal? (node-type node) 'number))
 
@@ -187,6 +198,9 @@
 
 (define (node-neq? node)
   (and (node-operator? node) (equal? (node-val node) "!=")))
+
+(define (node-lt? node)
+  (and (node-operator? node) (equal? (node-val node) #\<)))
 
 (define (parse input)
   ;; term = num | "(" expr ")""
@@ -240,19 +254,31 @@
 
     (call-with-values (lambda () (mul tokens)) add-rec))
 
-  ;; equality = add ("==" add | "!=" add)*
-  (define (equality tokens)
-    (define (equality-rec equ0 tokens)
-      (cond [(null? tokens) (values equ0 tokens)]
-            [(token-eq? (first tokens))
-             (define-values (equ1 remaining) (equality (rest tokens)))
-             (equality-rec (node-eq equ0 equ1) remaining)]
-            [(token-neq? (first tokens))
-             (define-values (equ1 remaining) (equality (rest tokens)))
-             (equality-rec (node-neq equ0 equ1) remaining)]
-            [else (values equ0 tokens)]))
+  ;; relational = add ("<" add)*
+  (define (relational tokens)
+    (define (relational-rec add0 tokens)
+      (cond [(empty? tokens) (values add0 tokens)]
+            [(token-lt? (first tokens))
+             (let-values ([(operator) (first tokens)]
+                          [(add1 remaining) (add (rest tokens))])
+               (relational-rec (node-operator add0 add1 (token-val operator)) remaining))]
+            [else (values add0 tokens)]))
 
-    (call-with-values (lambda () (add tokens)) equality-rec))
+    (call-with-values (lambda () (add tokens)) relational-rec))
+
+  ;; equality = relational ("==" relational | "!=" relational)*
+  (define (equality tokens)
+    (define (equality-rec rel0 tokens)
+      (cond [(empty? tokens) (values rel0 tokens)]
+            [(token-eq? (first tokens))
+             (define-values (rel1 remaining) (relational (rest tokens)))
+             (equality-rec (node-eq rel0 rel1) remaining)]
+            [(token-neq? (first tokens))
+             (define-values (rel1 remaining) (relational (rest tokens)))
+             (equality-rec (node-neq rel0 rel1) remaining)]
+            [else (values rel0 tokens)]))
+
+    (call-with-values (lambda () (relational tokens)) equality-rec))
 
   ;; expr = equality
   (define (expr tokens)
@@ -330,6 +356,14 @@
                #:before-first "\t"
                #:after-last "\n"))
 
+(define (generate-lt)
+  (string-join '("cmp rax, rdi"
+                 "setl al"
+                 "movzb rax, al")
+               "\n\t"
+               #:before-first "\t"
+               #:after-last "\n"))
+
 (define (generate-error msg)
   (raise-user-error
    'generate-error "~a\n" msg))
@@ -350,6 +384,7 @@
                       [(node-div? nodes) (generate-div)]
                       [(node-eq? nodes) (generate-eq)]
                       [(node-neq? nodes) (generate-neq)]
+                      [(node-lt? nodes) (generate-lt)]
                       [else
                        (generate-error (format "unepexted operator: ~a" (node-val nodes)))])
                 (push-result))])))
