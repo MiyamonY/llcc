@@ -31,11 +31,17 @@
 (define (token-operator? token)
   (equal? (token-type token) 'operator))
 
-(define (token-add? token)
+(define (token-plus? token)
   (and (token-operator? token) (equal? (token-val token) #\+)))
 
-(define (token-sub? token)
+(define (token-add? token)
+  (token-plus? token))
+
+(define (token-minus? token)
   (and (token-operator? token) (equal? (token-val token) #\-)))
+
+(define (token-sub? token)
+  (token-minus? token))
 
 (define (token-mul? token)
   (and (token-operator? token) (equal? (token-val token) #\*)))
@@ -116,7 +122,7 @@
 (define (node-plus left right)
   (node-operator left right #\+))
 
-(define (node-minus left right)
+(define (node-sub left right)
   (node-operator left right #\-))
 
 (define (node-number? node)
@@ -142,15 +148,28 @@
           [else
            (parse-error input (token-char-at token0) "token must be number or (")]))
 
-  ;; mul = term ("*" term | "/" term)*
+  ;; unary = ("+" | "-")? term
+  (define (unary tokens)
+    (when (null? tokens)
+      (parse-error input (string-length input) "expression ends unexpectedly"))
+
+    (define unary-operator (car tokens))
+    (cond [(token-plus? unary-operator)
+           (term (cdr tokens))]
+          [(token-minus? unary-operator)
+           (define-values (term0 remaining) (term (cdr tokens)))
+           (values (node-sub (node-number 0) term0) remaining)]
+          [else (term tokens)]))
+
+  ;; mul = unary ("*" unary | "/" unary)*
   (define (mul tokens)
-    (define (mul-rec term0 tokens)
-      (cond [(null? tokens) (values term0 tokens)]
+    (define (mul-rec unary0 tokens)
+      (cond [(null? tokens) (values unary0 tokens)]
             [(or (token-mul? (car tokens)) (token-div? (car tokens)))
-             (let-values ([(term1 remaining) (term (cdr tokens))])
-               (mul-rec (node-operator term0 term1 (token-val (car tokens))) remaining))]
-            [else (values term0 tokens)]))
-    (call-with-values (lambda () (term tokens)) mul-rec))
+             (let-values ([(unary1 remaining) (unary (cdr tokens))])
+               (mul-rec (node-operator unary0 unary1 (token-val (car tokens))) remaining))]
+            [else (values unary0 tokens)]))
+    (call-with-values (lambda () (unary tokens)) mul-rec))
 
   ;; expr = mul ("+" mul | "-" mul)*
   (define (expr tokens)
@@ -179,9 +198,10 @@
    (node-plus (node-number 12) (node-number 34)))
 
   (check-equal?
-   (parse " 12+ 34- 12")
-   (node-minus (node-plus (node-number 12) (node-number 34))
-               (node-number 12)))
+   (parse " -12+ 34- 12")
+   (node-sub (node-plus (node-sub (node-number 0) (node-number 12)) (node-number 34))
+             (node-number 12)))
+
 
   (check-exn #rx"parse-error" (lambda () (parse "12+")))
   (check-exn #rx"parse-error" (lambda () (parse "12+ +")))
@@ -219,6 +239,10 @@
                #:before-first "\t"
                #:after-last "\n"))
 
+(define (generate-error msg)
+  (raise-user-error
+   'generate-error "~a\n" msg))
+
 (define (generate nodes)
   (define (generate-rec nodes)
     (if (null? nodes)
@@ -232,7 +256,9 @@
                                 [(#\+) (add)]
                                 [(#\-) (sub)]
                                 [(#\*) (mul)]
-                                [(#\/) (div)])
+                                [(#\/) (div)]
+                                [else
+                                 (generate-error (format "unepexted operator: ~a" (node-val nodes)))])
                               (push-result))])))
 
   (string-append
