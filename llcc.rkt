@@ -13,6 +13,9 @@
 (define (token-identifier c char-at)
   (token 'identifier c char-at))
 
+(define (token-stmt char-at)
+  (token 'statement #\; char-at))
+
 (define (token-operator op char-at)
   (token 'operator op char-at))
 
@@ -171,6 +174,8 @@
                  [else
                   (cons (token-gt char-at) (tokenize-rec (rest lst) (add1 char-at)))
                   ])]
+          [(equal? (peek lst) #\;)
+           (cons (token-stmt char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number (string->number (list->string taken)) char-at)
