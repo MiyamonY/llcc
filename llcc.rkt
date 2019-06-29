@@ -28,6 +28,9 @@
 (define (token-eq char-at)
   (token 'operator "==" char-at))
 
+(define (token-neq char-at)
+  (token 'operator "!=" char-at))
+
 (define (token-number? token)
   (equal? (token-type token) 'number))
 
@@ -60,6 +63,9 @@
 
 (define (token-eq? token)
   (and (token-operator? token) (equal? (token-val token) "==")))
+
+(define (token-neq? token)
+  (and (token-operator? token) (equal? (token-val token) "!=")))
 
 (define (take-while lst f)
   (cond
@@ -110,6 +116,14 @@
                   (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
                   (tokenize-error expr (add1 char-at) "unexpected value")])]
+          [(equal? (peek lst) #\!)
+           (define next (peek (rest lst)))
+           (cond [(equal? next #\=)
+                  (cons (token-neq char-at) (tokenize-rec (cddr lst) (+ 2 char-at)))]
+                 [(not next)
+                  (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
+                 [else
+                  (tokenize-error expr (add1 char-at) "unexpected value")])]
           ((char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number (string->number (list->string taken)) char-at)
@@ -147,6 +161,9 @@
 (define (node-eq left right)
   (node-operator left right "=="))
 
+(define (node-neq left right)
+  (node-operator left right "!="))
+
 (define (node-number? node)
   (equal? (node-type node) 'number))
 
@@ -167,6 +184,9 @@
 
 (define (node-eq? node)
   (and (node-operator? node) (equal? (node-val node) "==")))
+
+(define (node-neq? node)
+  (and (node-operator? node) (equal? (node-val node) "!=")))
 
 (define (parse input)
   ;; term = num | "(" expr ")""
@@ -220,13 +240,16 @@
 
     (call-with-values (lambda () (mul tokens)) equality-rec))
 
-  ;; expr = equality ("==" equality)*
+  ;; expr = equality ("==" equality | "!=" equality)*
   (define (expr tokens)
     (define (expr-rec equ0 tokens)
       (cond [(null? tokens) (values equ0 tokens)]
             [(token-eq? (first tokens))
              (define-values (equ1 remaining) (equality (rest tokens)))
              (expr-rec (node-eq equ0 equ1) remaining)]
+            [(token-neq? (first tokens))
+             (define-values (equ1 remaining) (equality (rest tokens)))
+             (expr-rec (node-neq equ0 equ1) remaining)]
             [else (values equ0 tokens)]))
 
     (call-with-values (lambda () (equality tokens)) expr-rec))
@@ -295,6 +318,14 @@
                #:before-first "\t"
                #:after-last "\n"))
 
+(define (generate-neq)
+  (string-join '("cmp rax, rdi"
+                 "setne al"
+                 "movzb rax, al")
+               "\n\t"
+               #:before-first "\t"
+               #:after-last "\n"))
+
 (define (generate-error msg)
   (raise-user-error
    'generate-error "~a\n" msg))
@@ -314,6 +345,7 @@
                       [(node-mul? nodes) (generate-mul)]
                       [(node-div? nodes) (generate-div)]
                       [(node-eq? nodes) (generate-eq)]
+                      [(node-neq? nodes) (generate-neq)]
                       [else
                        (generate-error (format "unepexted operator: ~a" (node-val nodes)))])
                 (push-result))])))
