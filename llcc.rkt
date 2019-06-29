@@ -34,11 +34,14 @@
 (define (token-lt char-at)
   (token-operator #\< char-at))
 
+(define (token-le char-at)
+  (token-operator "<=" char-at))
+
 (define (token-gt char-at)
   (token-operator #\> char-at))
 
-(define (token-le char-at)
-  (token-operator "<=" char-at))
+(define (token-ge char-at)
+  (token-operator ">=" char-at))
 
 (define (token-number? token)
   (equal? (token-type token) 'number))
@@ -84,6 +87,9 @@
 
 (define (token-gt? token)
   (and (token-operator? token) (equal? (token-val token) #\>)))
+
+(define (token-ge? token)
+  (and (token-operator? token) (equal? (token-val token) ">=")))
 
 (define (take-while lst f)
   (cond
@@ -151,7 +157,14 @@
                  [else
                   (cons (token-lt char-at) (tokenize-rec (rest lst) (add1 char-at)))])]
           [(equal? (peek lst) #\>)
-           (cons (token-gt char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+           (define next (peek (rest lst)))
+           (cond [(equal? next #\=)
+                  (cons (token-ge char-at) (tokenize-rec (rest (rest lst)) (+ char-at 2)))]
+                 [(false? next)
+                  (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
+                 [else
+                  (cons (token-gt char-at) (tokenize-rec (rest lst) (add1 char-at)))
+                  ])]
           ((char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number (string->number (list->string taken)) char-at)
@@ -286,7 +299,7 @@
 
     (call-with-values (lambda () (mul tokens)) add-rec))
 
-  ;; relational = add ("<" add | "<=" add | ">" add)*
+  ;; relational = add ("<" add | "<=" add | ">" add | ">=" add)*
   (define (relational tokens)
     (define (relational-rec add0 tokens)
       (cond [(empty? tokens) (values add0 tokens)]
@@ -294,7 +307,7 @@
              (let-values ([(operator) (first tokens)]
                           [(add1 remaining) (add (rest tokens))])
                (relational-rec (node-operator add0 add1 (token-val operator)) remaining))]
-            [(token-gt? (first tokens))
+            [(or (token-gt? (first tokens)) (token-ge? (first tokens)))
              (let-values ([(operator) (first tokens)]
                           [(add1 remaining) (add (rest tokens))])
                (relational-rec (node-operator add1 add0 (reverse-compare (token-val operator))) remaining))]
