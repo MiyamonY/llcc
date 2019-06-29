@@ -25,6 +25,9 @@
 (define (token-rparen char-at)
   (token 'rparen #\) char-at))
 
+(define (token-eq char-at)
+  (token 'operator "==" char-at))
+
 (define (token-number? token)
   (equal? (token-type token) 'number))
 
@@ -55,6 +58,9 @@
 (define (token-rparen? token)
   (equal? (token-type token) 'rparen))
 
+(define (token-eq? token)
+  (and (token-operator? token) (equal? (token-val token) "==")))
+
 (define (take-while lst f)
   (cond
     ((null? lst) (values '() '()))
@@ -80,7 +86,7 @@
    'tokenize-error  "\n~a\n~a^\n~a\n" expr (make-string char-at #\space) msg))
 
 (define (peek lst)
-  (if (null? lst)
+  (if (empty? lst)
       #f
       (first lst)))
 
@@ -96,6 +102,14 @@
            (cons (token-lparen char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(equal? (peek lst) #\))
            (cons (token-rparen char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+          [(equal? (peek lst) #\=)
+           (define next (peek (rest lst)))
+           (cond [(equal? next #\=)
+                  (cons (token-eq char-at) (tokenize-rec (cddr lst) (+ 2 char-at)))]
+                 [(not next)
+                  (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
+                 [else
+                  (tokenize-error expr (add1 char-at) "unexpected value")])]
           ((char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number (string->number (list->string taken)) char-at)
@@ -130,6 +144,9 @@
 (define (node-sub left right)
   (node-operator left right #\-))
 
+(define (node-eq left right)
+  (node-operator left right "=="))
+
 (define (node-number? node)
   (equal? (node-type node) 'number))
 
@@ -147,6 +164,9 @@
 
 (define (node-div? node)
   (and (node-operator? node) (equal? (node-val node) #\/)))
+
+(define (node-eq? node)
+  (and (node-operator? node) (equal? (node-val node) "==")))
 
 (define (parse input)
   ;; term = num | "(" expr ")""
@@ -188,17 +208,28 @@
             [else (values unary0 tokens)]))
     (call-with-values (lambda () (unary tokens)) mul-rec))
 
-  ;; expr = mul ("+" mul | "-" mul)*
-  (define (expr tokens)
-    (define (expr-rec mul0 tokens)
+  ;; equality = mul ("+" mul | "-" mul)*
+  (define (equality tokens)
+    (define (equality-rec mul0 tokens)
       (cond [(null? tokens) (values mul0 tokens)]
-            [(or (token-add? (car tokens)) (token-sub? (car tokens)))
-             (let-values ([(operator) (car tokens)]
-                          [(mul1 remaining) (mul (cdr tokens))])
-               (expr-rec (node-operator mul0 mul1 (token-val operator)) remaining))]
+            [(or (token-add? (first tokens)) (token-sub? (first tokens)))
+             (let-values ([(operator) (first tokens)]
+                          [(mul1 remaining) (mul (rest tokens))])
+               (equality-rec (node-operator mul0 mul1 (token-val operator)) remaining))]
             [else (values mul0 tokens)]))
 
-    (call-with-values (lambda () (mul tokens)) expr-rec))
+    (call-with-values (lambda () (mul tokens)) equality-rec))
+
+  ;; expr = equality ("==" equality)*
+  (define (expr tokens)
+    (define (expr-rec equ0 tokens)
+      (cond [(null? tokens) (values equ0 tokens)]
+            [(token-eq? (first tokens))
+             (define-values (equ1 remaining) (equality (rest tokens)))
+             (expr-rec (node-eq equ0 equ1) remaining)]
+            [else (values equ0 tokens)]))
+
+    (call-with-values (lambda () (equality tokens)) expr-rec))
 
   (define-values (nodes remaining) (expr (tokenize input)))
 
@@ -256,6 +287,14 @@
                #:before-first "\t"
                #:after-last "\n"))
 
+(define (generate-eq)
+  (string-join '("cmp rax, rdi"
+                 "sete al"
+                 "movzb rax, al")
+               "\n\t"
+               #:before-first "\t"
+               #:after-last "\n"))
+
 (define (generate-error msg)
   (raise-user-error
    'generate-error "~a\n" msg))
@@ -274,6 +313,7 @@
                       [(node-sub? nodes) (generate-sub)]
                       [(node-mul? nodes) (generate-mul)]
                       [(node-div? nodes) (generate-div)]
+                      [(node-eq? nodes) (generate-eq)]
                       [else
                        (generate-error (format "unepexted operator: ~a" (node-val nodes)))])
                 (push-result))])))
