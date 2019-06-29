@@ -148,7 +148,7 @@
                  [(not next)
                   (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
-                  (tokenize-error expr (add1 char-at) "unexpected value")])]
+                  (cons (token-assign char-at) (tokenize-rec (rest lst) (add1 char-at)))])]
           [(equal? (peek lst) #\!)
            (define next (peek (rest lst)))
            (cond [(equal? next #\=)
@@ -156,7 +156,7 @@
                  [(not next)
                   (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
-                  (cons (token-assign char-at) (tokenize-rec (cddr lst) (add1 char-at)))])]
+                  (tokenize-error expr (add1 char-at) "unexpected value")])]
           [(equal? (peek lst) #\<)
            (define next (peek (rest lst)))
            (cond [(equal? next #\=)
@@ -192,7 +192,17 @@
   (check-equal? (tokenize "1+2")
                 (list (token-number 1 0)
                       (token-plus 1)
-                      (token-number 2 2))))
+                      (token-number 2 2)))
+
+  (check-equal? (tokenize "a+b;a=1;")
+                (list (token-identifier #\a 0)
+                      (token-plus 1)
+                      (token-identifier #\b 2)
+                      (token-stmt 3)
+                      (token-identifier #\a 4)
+                      (token-assign 5)
+                      (token-number 1 6)
+                      (token-stmt 7))))
 
 (define (parse-error expr char-at msg)
   (raise-user-error
