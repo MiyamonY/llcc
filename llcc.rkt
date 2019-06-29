@@ -20,16 +20,16 @@
   (token-operator #\- char-at))
 
 (define (token-lparen char-at)
-  (token 'lparen #\( char-at))
+  (token-operator #\( char-at))
 
 (define (token-rparen char-at)
-  (token 'rparen #\) char-at))
+  (token-operator #\) char-at))
 
 (define (token-eq char-at)
-  (token 'operator "==" char-at))
+  (token-operator "==" char-at))
 
 (define (token-neq char-at)
-  (token 'operator "!=" char-at))
+  (token-operator "!=" char-at))
 
 (define (token-lt char-at)
   (token-operator #\< char-at))
@@ -62,10 +62,10 @@
   (and (token-operator? token) (equal? (token-val token) #\/)))
 
 (define (token-lparen? token)
-  (equal? (token-type token) 'lparen))
+  (and (token-operator? token) (equal? (token-val token) #\()))
 
 (define (token-rparen? token)
-  (equal? (token-type token) 'rparen))
+  (and (token-operator? token) (equal? (token-val token) #\))))
 
 (define (token-eq? token)
   (and (token-operator? token) (equal? (token-val token) "==")))
