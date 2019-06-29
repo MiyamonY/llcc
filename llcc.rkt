@@ -131,6 +131,18 @@
 (define (node-operator? node)
   (equal? (node-type node) 'operator))
 
+(define (node-add? node)
+  (and (node-operator? node) (equal? (node-val node) #\+)))
+
+(define (node-sub? node)
+  (and (node-operator? node) (equal? (node-val node) #\-)))
+
+(define (node-mul? node)
+  (and (node-operator? node) (equal? (node-val node) #\*)))
+
+(define (node-div? node)
+  (and (node-operator? node) (equal? (node-val node) #\/)))
+
 (define (parse input)
   ;; term = num | "(" expr ")""
   (define (term tokens)
@@ -223,16 +235,16 @@
 (define (pop-result)
   "\tpop rax\n")
 
-(define (add)
+(define (generate-add)
   "\tadd rax, rdi\n")
 
-(define (sub)
+(define (generate-sub)
   "\tsub rax, rdi\n")
 
-(define (mul)
+(define (generate-mul)
   "\timul rax, rdi\n")
 
-(define (div)
+(define (generate-div)
   (string-join '("cqo"
                  "div rdi")
                "\n\t"
@@ -249,17 +261,17 @@
         ""
         (cond [(node-number? nodes) (push (node-val nodes))]
               [(node-operator? nodes)
-               (string-append (generate-rec (node-left nodes))
-                              (generate-rec (node-right nodes))
-                              (pop-operands)
-                              (case (node-val nodes)
-                                [(#\+) (add)]
-                                [(#\-) (sub)]
-                                [(#\*) (mul)]
-                                [(#\/) (div)]
-                                [else
-                                 (generate-error (format "unepexted operator: ~a" (node-val nodes)))])
-                              (push-result))])))
+               (string-append
+                (generate-rec (node-left nodes))
+                (generate-rec (node-right nodes))
+                (pop-operands)
+                (cond [(node-add? nodes) (generate-add)]
+                      [(node-sub? nodes) (generate-sub)]
+                      [(node-mul? nodes) (generate-mul)]
+                      [(node-div? nodes) (generate-div)]
+                      [else
+                       (generate-error (format "unepexted operator: ~a" (node-val nodes)))])
+                (push-result))])))
 
   (string-append
    ".intel_syntax noprefix\n"
