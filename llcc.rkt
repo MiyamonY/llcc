@@ -55,6 +55,9 @@
 (define (token-number? token)
   (equal? (token-type token) 'number))
 
+(define (token-stmt? token)
+  (equal? (token-type token) 'statement))
+
 (define (token-operator? token)
   (equal? (token-type token) 'operator))
 
@@ -357,7 +360,23 @@
   (define (expr tokens)
     (equality tokens))
 
-  (define-values (nodes remaining) (expr (tokenize input)))
+  ;; stmt = expr ";"
+  (define (stmt tokens)
+    (define-values (expr0 remaining) (expr tokens))
+
+    (when (empty? remaining)
+      (parse-error input (token-char-at (last tokens)) "statement ends unexpectedly"))
+
+    (unless (token-stmt? (first remaining))
+      (parse-error input (token-char-at (first remaining)) "statement is not end with ;"))
+
+    (values expr0 (rest remaining)))
+
+  ;; program = stmt
+  (define (program tokens)
+    (stmt tokens))
+
+  (define-values (nodes remaining) (program (tokenize input)))
 
   (unless (null? remaining)
     (parse-error input (token-char-at (car remaining)) "unused token"))
@@ -365,21 +384,22 @@
 
 (module+ test
   (check-equal?
-   (parse "12") (node-number 12))
+   (parse "12;") (node-number 12))
 
   (check-equal?
-   (parse "12+34")
+   (parse "12+34;")
    (node-plus (node-number 12) (node-number 34)))
 
   (check-equal?
-   (parse " -12+ 34- 12")
+   (parse " -12+ 34- 12;")
    (node-sub (node-plus (node-sub (node-number 0) (node-number 12)) (node-number 34))
              (node-number 12)))
 
 
-  (check-exn #rx"parse-error" (lambda () (parse "12+")))
-  (check-exn #rx"parse-error" (lambda () (parse "12+ +")))
-  (check-exn #rx"parse-error" (lambda () (parse " 12+ 34 12"))))
+  (check-exn #rx"parse-error" (lambda () (parse "12+;")))
+  (check-exn #rx"parse-error" (lambda () (parse "12+ +;")))
+  (check-exn #rx"parse-error" (lambda () (parse " 12+ 34 12;")))
+  (check-exn #rx"parse-error" (lambda () (parse " 12+ 34"))))
 
 (define (push num)
   (format "\tpush ~a\n" num))
