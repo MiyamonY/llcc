@@ -34,6 +34,9 @@
 (define (token-lt char-at)
   (token-operator #\< char-at))
 
+(define (token-gt char-at)
+  (token-operator #\> char-at))
+
 (define (token-le char-at)
   (token-operator "<=" char-at))
 
@@ -78,6 +81,9 @@
 
 (define (token-le? token)
   (and (token-operator? token) (equal? (token-val token) "<=")))
+
+(define (token-gt? token)
+  (and (token-operator? token) (equal? (token-val token) #\>)))
 
 (define (take-while lst f)
   (cond
@@ -144,6 +150,8 @@
                   (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
                   (cons (token-lt char-at) (tokenize-rec (rest lst) (add1 char-at)))])]
+          [(equal? (peek lst) #\>)
+           (cons (token-gt char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           ((char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number (string->number (list->string taken)) char-at)
@@ -220,6 +228,12 @@
 (define (node-le? node)
   (and (node-operator? node) (equal? (node-val node) "<=")))
 
+(define (reverse-compare op)
+  (cond [(equal? op #\>) #\<]
+        [(equal? op #\<) #\>]
+        [(equal? op "<=") ">="]
+        [(equal? op ">=") "<="]))
+
 (define (parse input)
   ;; term = num | "(" expr ")""
   (define (term tokens)
@@ -272,7 +286,7 @@
 
     (call-with-values (lambda () (mul tokens)) add-rec))
 
-  ;; relational = add ("<" add | "<=" add)*
+  ;; relational = add ("<" add | "<=" add | ">" add)*
   (define (relational tokens)
     (define (relational-rec add0 tokens)
       (cond [(empty? tokens) (values add0 tokens)]
@@ -280,6 +294,10 @@
              (let-values ([(operator) (first tokens)]
                           [(add1 remaining) (add (rest tokens))])
                (relational-rec (node-operator add0 add1 (token-val operator)) remaining))]
+            [(token-gt? (first tokens))
+             (let-values ([(operator) (first tokens)]
+                          [(add1 remaining) (add (rest tokens))])
+               (relational-rec (node-operator add1 add0 (reverse-compare (token-val operator))) remaining))]
             [else (values add0 tokens)]))
 
     (call-with-values (lambda () (add tokens)) relational-rec))
