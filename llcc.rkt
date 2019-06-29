@@ -58,6 +58,9 @@
 (define (token-stmt? token)
   (equal? (token-type token) 'statement))
 
+(define (token-identifier? token)
+  (equal? (token-type token) 'identifier))
+
 (define (token-operator? token)
   (equal? (token-type token) 'operator))
 
@@ -102,6 +105,9 @@
 
 (define (token-ge? token)
   (and (token-operator? token) (equal? (token-val token) ">=")))
+
+(define (token-assign? token)
+  (and (token-operator? token) (equal? (token-val token) #\=)))
 
 (define (take-while lst f)
   (cond
@@ -148,32 +154,24 @@
            (define next (peek (rest lst)))
            (cond [(equal? next #\=)
                   (cons (token-eq char-at) (tokenize-rec (cddr lst) (+ 2 char-at)))]
-                 [(not next)
-                  (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
                   (cons (token-assign char-at) (tokenize-rec (rest lst) (add1 char-at)))])]
           [(equal? (peek lst) #\!)
            (define next (peek (rest lst)))
            (cond [(equal? next #\=)
                   (cons (token-neq char-at) (tokenize-rec (cddr lst) (+ 2 char-at)))]
-                 [(not next)
-                  (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
                   (tokenize-error expr (add1 char-at) "unexpected value")])]
           [(equal? (peek lst) #\<)
            (define next (peek (rest lst)))
            (cond [(equal? next #\=)
                   (cons (token-le char-at) (tokenize-rec (rest (rest lst)) (+ char-at 2)))]
-                 [(false? next)
-                  (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
                   (cons (token-lt char-at) (tokenize-rec (rest lst) (add1 char-at)))])]
           [(equal? (peek lst) #\>)
            (define next (peek (rest lst)))
            (cond [(equal? next #\=)
                   (cons (token-ge char-at) (tokenize-rec (rest (rest lst)) (+ char-at 2)))]
-                 [(false? next)
-                  (tokenize-error expr (add1 char-at) "expression ends unexpectedly")]
                  [else
                   (cons (token-gt char-at) (tokenize-rec (rest lst) (add1 char-at)))
                   ])]
@@ -211,11 +209,25 @@
   (raise-user-error
    'parse-error  "\n~a\n~a^\n~a\n" expr (make-string char-at #\space) msg))
 
-(struct node (type left right val)
+(struct node (type left right val [offset #:auto])
+  #:auto-value 0
   #:transparent)
 
 (define (node-number num)
   (node 'number null null num))
+
+(define (node-assign left right)
+  (node 'assign left right #\=))
+
+(define (variable-offset c)
+  (* (add1 (- (char->integer c) (char->integer #\a))) 8))
+
+(module+ test
+  (check-equal? (variable-offset #\a) 8)
+  (check-equal? (variable-offset #\c) 24))
+
+(define (node-local-variable c)
+  (node 'local-variable null null (variable-offset c)))
 
 (define (node-operator left right op)
   (node 'operator left right op))
@@ -275,7 +287,7 @@
         [(equal? op ">=") "<="]))
 
 (define (parse input)
-  ;; term = num | "(" expr ")""
+  ;; term = num | ident "(" expr ")""
   (define (term tokens)
     (when (null? tokens)
       (parse-error input (string-length input) "expression ends unexpectedly"))
@@ -283,6 +295,8 @@
     (define token0 (car tokens))
     (cond [(token-number? token0)
            (values (node-number (token-val token0)) (cdr tokens))]
+          [(token-identifier? token0)
+           (values (node-local-variable (token-val token0)) (cdr tokens))]
           [(token-lparen? token0)
            (define-values (expr0 remaining) (expr (cdr tokens)))
            (unless (token-rparen? (car remaining))
@@ -356,16 +370,30 @@
 
     (call-with-values (lambda () (relational tokens)) equality-rec))
 
-  ;; expr = equality
+  ;; assign = equality ("=" assing)?
+  (define (assign tokens)
+    (define (assign-aux equ0 tokens)
+      (when (empty? tokens)
+        (parse-error input (string-length input) "assign ends unexpectedly"))
+
+      (cond [(token-assign? (first tokens))
+             (define-values (assign0 remaining) (assign (rest tokens)))
+             (values (node-assign equ0 assign0) remaining)]
+            [else
+             (values equ0 tokens)]))
+
+    (call-with-values (lambda () (equality tokens)) assign-aux))
+
+  ;; expr = assign
   (define (expr tokens)
-    (equality tokens))
+    (assign tokens))
 
   ;; stmt = expr ";"
   (define (stmt tokens)
     (define-values (expr0 remaining) (expr tokens))
 
     (when (empty? remaining)
-      (parse-error input (token-char-at (last tokens)) "statement ends unexpectedly"))
+      (parse-error input (token-char-at (string-length input)) "statement ends unexpectedly"))
 
     (unless (token-stmt? (first remaining))
       (parse-error input (token-char-at (first remaining)) "statement is not end with ;"))
@@ -395,11 +423,21 @@
    (node-sub (node-plus (node-sub (node-number 0) (node-number 12)) (node-number 34))
              (node-number 12)))
 
+  (check-equal?
+   (parse "x=y=1;")
+   (node-assign (node-local-variable #\x) (node-assign (node-local-variable #\y) (node-number 1))) )
 
-  (check-exn #rx"parse-error" (lambda () (parse "12+;")))
-  (check-exn #rx"parse-error" (lambda () (parse "12+ +;")))
-  (check-exn #rx"parse-error" (lambda () (parse " 12+ 34 12;")))
-  (check-exn #rx"parse-error" (lambda () (parse " 12+ 34"))))
+  (define input-for-exn
+    '("12+;"
+      "12+ +;"
+      " 12+ 34 12;"
+      " 12+ 34"
+      " 12+ 34=;"
+      " 12+ 34<;"))
+
+  (for-each (lambda (input)
+              (check-exn #rx"parse-error" (lambda () (parse input))))
+            input-for-exn))
 
 (define (push num)
   (format "\tpush ~a\n" num))
