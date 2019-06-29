@@ -228,31 +228,35 @@
             [else (values unary0 tokens)]))
     (call-with-values (lambda () (unary tokens)) mul-rec))
 
-  ;; equality = mul ("+" mul | "-" mul)*
-  (define (equality tokens)
-    (define (equality-rec mul0 tokens)
+  ;; add = mul ("+" mul | "-" mul)*
+  (define (add tokens)
+    (define (add-rec mul0 tokens)
       (cond [(null? tokens) (values mul0 tokens)]
             [(or (token-add? (first tokens)) (token-sub? (first tokens)))
              (let-values ([(operator) (first tokens)]
                           [(mul1 remaining) (mul (rest tokens))])
-               (equality-rec (node-operator mul0 mul1 (token-val operator)) remaining))]
+               (add-rec (node-operator mul0 mul1 (token-val operator)) remaining))]
             [else (values mul0 tokens)]))
 
-    (call-with-values (lambda () (mul tokens)) equality-rec))
+    (call-with-values (lambda () (mul tokens)) add-rec))
 
-  ;; expr = equality ("==" equality | "!=" equality)*
-  (define (expr tokens)
-    (define (expr-rec equ0 tokens)
+  ;; equality = add ("==" add | "!=" add)*
+  (define (equality tokens)
+    (define (equality-rec equ0 tokens)
       (cond [(null? tokens) (values equ0 tokens)]
             [(token-eq? (first tokens))
              (define-values (equ1 remaining) (equality (rest tokens)))
-             (expr-rec (node-eq equ0 equ1) remaining)]
+             (equality-rec (node-eq equ0 equ1) remaining)]
             [(token-neq? (first tokens))
              (define-values (equ1 remaining) (equality (rest tokens)))
-             (expr-rec (node-neq equ0 equ1) remaining)]
+             (equality-rec (node-neq equ0 equ1) remaining)]
             [else (values equ0 tokens)]))
 
-    (call-with-values (lambda () (equality tokens)) expr-rec))
+    (call-with-values (lambda () (add tokens)) equality-rec))
+
+  ;; expr = equality
+  (define (expr tokens)
+    (equality tokens))
 
   (define-values (nodes remaining) (expr (tokenize input)))
 
