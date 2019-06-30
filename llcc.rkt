@@ -482,99 +482,86 @@
               (check-exn #rx"parse-error" (lambda () (parse input))))
             input-for-exn))
 
-(define (push num)
-  (format "\tpush ~a\n" num))
-
-(define (reserve-stack)
-  (string-join '("push rbp"
-                 "mov rbp, rsp"
-                 "sub rsp, 208")
-               "\n\t"
-               #:before-first "\t"
-               #:after-last "\n"))
-
-(define (reset-stack)
-  (string-join '("mov rsp, rbp"
-                 "pop rbp")
-               "\n\t"
-               #:before-first "\t"
-               #:after-last "\n"))
-(define (push-result)
-  "\tpush rax\n")
-
-(define (pop-operands)
-  (string-join '("pop rdi"
-                 "pop rax")
-               "\n\t"
-               #:before-first "\t"
-               #:after-last "\n"))
-
-(define (pop-result)
-  "\tpop rax\n")
-
-(define (generate-add)
-  "\tadd rax, rdi\n")
-
-(define (generate-sub)
-  "\tsub rax, rdi\n")
-
-(define (generate-mul)
-  "\timul rax, rdi\n")
-
-(define (generate-div)
-  (string-join '("cqo"
-                 "div rdi")
-               "\n\t"
-               #:before-first "\t"
-               #:after-last "\n"))
-
-(define (generate-eq)
-  (string-join '("cmp rax, rdi"
-                 "sete al"
-                 "movzb rax, al")
-               "\n\t"
-               #:before-first "\t"
-               #:after-last "\n"))
-
-(define (generate-neq)
-  (string-join '("cmp rax, rdi"
-                 "setne al"
-                 "movzb rax, al")
-               "\n\t"
-               #:before-first "\t"
-               #:after-last "\n"))
-
-(define (generate-lt)
-  (string-join '("cmp rax, rdi"
-                 "setl al"
-                 "movzb rax, al")
-               "\n\t"
-               #:before-first "\t"
-               #:after-last "\n"))
-
-(define (generate-le)
-  (string-join '("cmp rax, rdi"
-                 "setle al"
-                 "movzb rax, al")
-               "\n\t"
-               #:before-first "\t"
-               #:after-last "\n"))
-
 (define (generate-error msg)
   (raise-user-error
    'generate-error "~a\n" msg))
+
+(define (push num)
+  `(,(format "push ~a" num)))
+
+(define (reserve-local-variables)
+  '("push rbp"
+    "mov rbp, rsp"
+    "sub rsp, 208"))
+
+(define (free-local-variables)
+  '("mov rsp, rbp"
+    "pop rbp"))
+
+(define (push-result)
+  '("push rax"))
+
+(define (pop-result)
+  '("pop rax"))
+
+(define (pop-operands)
+  '("pop rdi"
+    "pop rax"))
+
+(define (return)
+  '("ret"))
+
+(define (generate-add)
+  '("add rax, rdi"))
+
+(define (generate-sub)
+  '("sub rax, rdi"))
+
+(define (generate-mul)
+  '("imul rax, rdi"))
+
+(define (generate-div)
+  '("cqo"
+    "div rdi"))
+
+(define (generate-eq)
+  '("cmp rax, rdi"
+    "sete al"
+    "movzb rax, al"))
+
+(define (generate-neq)
+  '("cmp rax, rdi"
+    "setne al"
+    "movzb rax, al"))
+
+(define (generate-lt)
+  '("cmp rax, rdi"
+    "setl al"
+    "movzb rax, al"))
+
+(define (generate-le)
+  '("cmp rax, rdi"
+    "setle al"
+    "movzb rax, al"))
+
+(define (generate-load-from-local-variable)
+  '("pop rax"
+    "mov rax, [rax]"
+    "push rax"))
+
+(define (generate-store-to-local-variable)
+  '("pop rdi"
+    "pop rax"
+    "mov [rax],rdi"
+    "push rdi"))
 
 (define (generate-left-value node)
   (unless (node-local-variable? node)
     (generate-error (format "left value must be local variable: ~a" (node-val node))))
 
-  (string-join (list
-                "mov rax, rbp"
-                (format "sub rax, ~a" (node-offset node))
-                "push rax")
-               "\n\t"
-               #:before-first "\t"
-               #:after-last "\n"))
+  `("mov rax, rbp"
+    ,(format "sub rax, ~a" (node-offset node))
+    "push rax"))
 
 (define (generate nodes)
   (define (generate-rec node)
@@ -582,59 +569,49 @@
         ""
         (cond [(node-number? node) (push (node-val node))]
               [(node-local-variable? node)
-               (string-append (generate-left-value node)
-                              (string-join '("pop rax"
-                                             "mov rax, [rax]"
-                                             "push rax")
-                                           "\n\t"
-                                           #:before-first "\t"
-                                           #:after-last "\n"))]
+               `(,@(generate-left-value node)
+                 ,@(generate-load-from-local-variable))]
               [(node-assign? node)
-               (string-append (generate-left-value (node-left node))
-                              (generate-rec (node-right node))
-                              (string-join '("pop rdi"
-                                             "pop rax"
-                                             "mov [rax],rdi"
-                                             "push rdi")
-                                           "\n\t"
-                                           #:before-first "\t"
-                                           #:after-last "\n"))]
+               `(,@(generate-left-value (node-left node))
+                 ,@(generate-rec (node-right node))
+                 ,@(generate-store-to-local-variable))]
               [(node-return? node)
-               (string-append (generate-rec (node-left node))
-                              (string-join '("pop rax"
-                                             "mov rsp, rbp"
-                                             "pop rbp"
-                                             "ret")
-                                           "\n\t"
-                                           #:before-first "\t"
-                                           #:after-last "\n"))]
+               `(,@(generate-rec (node-left node))
+                 ,@(pop-result)
+                 ,@(free-local-variables)
+                 ,@(return))]
               [(node-operator? node)
-               (string-append
-                (generate-rec (node-left node))
-                (generate-rec (node-right node))
-                (pop-operands)
-                (cond [(node-add? node) (generate-add)]
-                      [(node-sub? node) (generate-sub)]
-                      [(node-mul? node) (generate-mul)]
-                      [(node-div? node) (generate-div)]
-                      [(node-eq? node) (generate-eq)]
-                      [(node-neq? node) (generate-neq)]
-                      [(node-lt? node) (generate-lt)]
-                      [(node-le? node) (generate-le)]
-                      [else
-                       (generate-error (format "unepexted operator: ~a" (node-val node)))])
-                (push-result))])))
+               `(,@(generate-rec (node-left node))
+                 ,@(generate-rec (node-right node))
+                 ,@(pop-operands)
+                 ,@(cond [(node-add? node) (generate-add)]
+                         [(node-sub? node) (generate-sub)]
+                         [(node-mul? node) (generate-mul)]
+                         [(node-div? node) (generate-div)]
+                         [(node-eq? node) (generate-eq)]
+                         [(node-neq? node) (generate-neq)]
+                         [(node-lt? node) (generate-lt)]
+                         [(node-le? node) (generate-le)]
+                         [else
+                          (generate-error (format "unepexted operator: ~a" (node-val node)))])
+                 ,@(push-result))])))
 
-  (string-append
-   ".intel_syntax noprefix\n"
-   ".global main\n"
-   "main:\n"
-   (reserve-stack)
-   (string-join (map generate-rec nodes)
-                "\tpop rax\n")
-   (pop-result)
-   (reset-stack)
-   "\tret"))
+  (string-join
+   `(".intel_syntax noprefix"
+     ".global main"
+     "main:"
+     ,(string-join
+       (flatten
+        (list
+         (reserve-local-variables)
+         (map
+          (lambda (node) (append (generate-rec node) (pop-result)))
+          nodes)
+         (free-local-variables)
+         (return)))
+       "\n\t"
+       #:before-first "\t"))
+   "\n"))
 
 (define (compile expr)
   (displayln (generate (parse expr))))
