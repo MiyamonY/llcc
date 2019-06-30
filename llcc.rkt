@@ -507,33 +507,33 @@
   (raise-user-error
    'generate-error "~a\n" msg))
 
-(define (generate nodes)
-  (define (generate-rec nodes)
-    (if (null? nodes)
+(define (generate node)
+  (define (generate-rec node)
+    (if (null? node)
         ""
-        (cond [(node-number? nodes) (push (node-val nodes))]
-              [(node-operator? nodes)
+        (cond [(node-number? node) (push (node-val node))]
+              [(node-operator? node)
                (string-append
-                (generate-rec (node-left nodes))
-                (generate-rec (node-right nodes))
+                (generate-rec (node-left node))
+                (generate-rec (node-right node))
                 (pop-operands)
-                (cond [(node-add? nodes) (generate-add)]
-                      [(node-sub? nodes) (generate-sub)]
-                      [(node-mul? nodes) (generate-mul)]
-                      [(node-div? nodes) (generate-div)]
-                      [(node-eq? nodes) (generate-eq)]
-                      [(node-neq? nodes) (generate-neq)]
-                      [(node-lt? nodes) (generate-lt)]
-                      [(node-le? nodes) (generate-le)]
+                (cond [(node-add? node) (generate-add)]
+                      [(node-sub? node) (generate-sub)]
+                      [(node-mul? node) (generate-mul)]
+                      [(node-div? node) (generate-div)]
+                      [(node-eq? node) (generate-eq)]
+                      [(node-neq? node) (generate-neq)]
+                      [(node-lt? node) (generate-lt)]
+                      [(node-le? node) (generate-le)]
                       [else
-                       (generate-error (format "unepexted operator: ~a" (node-val nodes)))])
+                       (generate-error (format "unepexted operator: ~a" (node-val node)))])
                 (push-result))])))
 
   (string-append
    ".intel_syntax noprefix\n"
    ".global main\n"
    "main:\n"
-   (generate-rec nodes)
+   (generate-rec node)
    (pop-result)
    "\tret"))
 
