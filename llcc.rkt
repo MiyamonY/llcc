@@ -390,7 +390,7 @@
 
     (call-with-values (lambda () (equality tokens)) assign-aux))
 
-  ;; expr = assign
+  ;; expr = assign*
   (define (expr tokens)
     (assign tokens))
 
@@ -406,32 +406,33 @@
 
     (values expr0 (rest remaining)))
 
-  ;; program = stmt
+  ;; program = (stmt)*
   (define (program tokens)
-    (stmt tokens))
+    (define (program-rec tokens)
+      (cond [(null? tokens) '()]
+            [else
+             (define-values (stmt0 remaining) (stmt tokens))
+             (cons stmt0 (program-rec remaining))]))
+    (program-rec tokens))
 
-  (define-values (nodes remaining) (program (tokenize input)))
-
-  (unless (null? remaining)
-    (parse-error input (token-char-at (car remaining)) "unused token"))
-  nodes)
+  (program (tokenize input)))
 
 (module+ test
   (check-equal?
-   (parse "12;") (node-number 12))
+   (parse "12;") (list (node-number 12)))
 
   (check-equal?
    (parse "12+34;")
-   (node-plus (node-number 12) (node-number 34)))
+   (list (node-plus (node-number 12) (node-number 34))))
 
   (check-equal?
    (parse " -12+ 34- 12;")
-   (node-sub (node-plus (node-sub (node-number 0) (node-number 12)) (node-number 34))
-             (node-number 12)))
+   (list (node-sub (node-plus (node-sub (node-number 0) (node-number 12)) (node-number 34))
+                   (node-number 12))))
 
   (check-equal?
    (parse "x=y=1;")
-   (node-assign (node-local-variable #\x) (node-assign (node-local-variable #\y) (node-number 1))) )
+   (list (node-assign (node-local-variable #\x) (node-assign (node-local-variable #\y) (node-number 1)))))
 
   (define input-for-exn
     '("12+;"
@@ -539,7 +540,7 @@
                #:before-first "\t"
                #:after-last "\n"))
 
-(define (generate node)
+(define (generate nodes)
   (define (generate-rec node)
     (if (null? node)
         ""
@@ -584,7 +585,8 @@
    ".global main\n"
    "main:\n"
    (reserve-stack)
-   (generate-rec node)
+   (string-join (map generate-rec nodes)
+                "\tpop rax\n")
    (pop-result)
    (reset-stack)
    "\tret"))
