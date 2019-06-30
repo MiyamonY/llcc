@@ -10,8 +10,8 @@
 (define (token-number num char-at)
   (token 'number num char-at))
 
-(define (token-identifier c char-at)
-  (token 'identifier c char-at))
+(define (token-identifier name char-at)
+  (token 'identifier name char-at))
 
 (define (token-stmt char-at)
   (token 'statement #\; char-at))
@@ -182,8 +182,10 @@
            (cons (token-number (string->number (list->string taken)) char-at)
                  (tokenize-rec remaining (+ (length taken) char-at)))]
           [(char-lower-case? (peek lst))
-           (cons (token-identifier (peek lst) char-at)
-                 (tokenize-rec (rest lst) (add1 char-at)))]
+           (define-values (taken remaining)
+             (take-while lst (lambda (c) (or (char-numeric? c) (char-alphabetic? c)))))
+           (cons (token-identifier (list->string taken) char-at)
+                 (tokenize-rec remaining (+ (length taken) char-at)))]
           (else
            (tokenize-error expr char-at "unexpected value"))))
 
@@ -209,7 +211,7 @@
   (raise-user-error
    'parse-error  "\n~a\n~a^\n~a\n" expr (make-string char-at #\space) msg))
 
-(struct node (type left right val [offset #:auto])
+(struct node (type left right val [offset #:auto #:mutable])
   #:auto-value 0
   #:transparent)
 
@@ -219,15 +221,10 @@
 (define (node-assign left right)
   (node 'assign left right #\=))
 
-(define (variable-offset c)
-  (* (add1 (- (char->integer c) (char->integer #\a))) 8))
-
-(module+ test
-  (check-equal? (variable-offset #\a) 8)
-  (check-equal? (variable-offset #\c) 24))
-
-(define (node-local-variable c)
-  (node 'local-variable null null (variable-offset c)))
+(define (node-local-variable name offset)
+  (define local-variable (node 'local-variable null null name))
+  (set-node-offset! local-variable offset)
+  local-variable)
 
 (define (node-operator left right op)
   (node 'operator left right op))
@@ -293,6 +290,15 @@
         [(equal? op ">=") "<="]))
 
 (define (parse input)
+  (define variable-offsets (make-hash))
+
+  (define new-offset
+    ((lambda ()
+       (define offset 0)
+       (lambda ()
+         (set! offset (+ offset 8))
+         offset))))
+
   ;; term = num | ident "(" expr ")""
   (define (term tokens)
     (when (null? tokens)
@@ -302,7 +308,13 @@
     (cond [(token-number? token0)
            (values (node-number (token-val token0)) (cdr tokens))]
           [(token-identifier? token0)
-           (values (node-local-variable (token-val token0)) (cdr tokens))]
+           (define name (token-val token0))
+           (define offset
+             (or (hash-ref variable-offsets name #f)
+                 (let ([offset (new-offset)])
+                   (hash-set! variable-offsets name offset)
+                   offset)))
+           (values (node-local-variable name offset) (cdr tokens))]
           [(token-lparen? token0)
            (define-values (expr0 remaining) (expr (cdr tokens)))
            (unless (token-rparen? (car remaining))
@@ -432,7 +444,9 @@
 
   (check-equal?
    (parse "x=y=1;")
-   (list (node-assign (node-local-variable #\x) (node-assign (node-local-variable #\y) (node-number 1)))))
+   (list (node-assign (node-local-variable "x" 8)
+                      (node-assign (node-local-variable "y" 16)
+                                   (node-number 1)))))
 
   (define input-for-exn
     '("12+;"
