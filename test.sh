@@ -44,7 +44,8 @@ try 0 '15>12+4;'
 try 1 '30/2>=3*5-1;'
 try 1 '3*5>=3*5;'
 try 0 '10+5>=28/2+2;'
-try 12 'abc=10;abc+2;'
+try 12 'abc=10; abc+2;'
 try 28 'awf=awef=3+2*2; awef+awf*3;'
+try 170 'abc=3*4+5; return 10*abc; abc=0; return abc;'
 
 echo OK

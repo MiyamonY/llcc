@@ -16,6 +16,9 @@
 (define (token-stmt char-at)
   (token 'statement #\; char-at))
 
+(define (token-return char-at)
+  (token 'return "return" char-at))
+
 (define (token-operator op char-at)
   (token 'operator op char-at))
 
@@ -60,6 +63,9 @@
 
 (define (token-identifier? token)
   (equal? (token-type token) 'identifier))
+
+(define (token-return? token)
+  (equal? (token-type token) 'return))
 
 (define (token-operator? token)
   (equal? (token-type token) 'operator))
@@ -184,8 +190,12 @@
           [(char-lower-case? (peek lst))
            (define-values (taken remaining)
              (take-while lst (lambda (c) (or (char-numeric? c) (char-alphabetic? c)))))
-           (cons (token-identifier (list->string taken) char-at)
-                 (tokenize-rec remaining (+ (length taken) char-at)))]
+           (define name (list->string taken))
+           (define token
+             (cond [(equal? name "return") (token-return char-at)]
+                   [else
+                    (token-identifier name char-at)]))
+           (cons token (tokenize-rec remaining (+ (length taken) char-at)))]
           (else
            (tokenize-error expr char-at "unexpected value"))))
 
@@ -198,11 +208,11 @@
                       (token-number 2 2)))
 
   (check-equal? (tokenize "a+b;a=1;")
-                (list (token-identifier #\a 0)
+                (list (token-identifier "a" 0)
                       (token-plus 1)
-                      (token-identifier #\b 2)
+                      (token-identifier "b" 2)
                       (token-stmt 3)
-                      (token-identifier #\a 4)
+                      (token-identifier "a" 4)
                       (token-assign 5)
                       (token-number 1 6)
                       (token-stmt 7))))
@@ -220,6 +230,9 @@
 
 (define (node-assign left right)
   (node 'assign left right #\=))
+
+(define (node-return left)
+  (node 'return left null "return"))
 
 (define (node-local-variable name offset)
   (define local-variable (node 'local-variable null null name))
@@ -255,6 +268,9 @@
 
 (define (node-assign? node)
   (equal? (node-type node) 'assign))
+
+(define (node-return? node)
+  (equal? (node-type node) 'return))
 
 (define (node-operator? node)
   (equal? (node-type node) 'operator))
@@ -406,17 +422,23 @@
   (define (expr tokens)
     (assign tokens))
 
-  ;; stmt = expr ";"
+  ;; stmt = expr ";" | "return" expr ";"
   (define (stmt tokens)
-    (define-values (expr0 remaining) (expr tokens))
+    (define-values (node remaining)
+      (cond [(empty? tokens)
+             (parse-error input (string-length input) "stmt is empty")]
+            [(token-return? (first tokens))
+             (define-values (expr0 remaining) (expr (rest tokens)))
+             (values (node-return expr0) remaining)]
+            [else
+             (expr tokens)]))
 
     (when (empty? remaining)
       (parse-error input (token-char-at (string-length input)) "statement ends unexpectedly"))
-
     (unless (token-stmt? (first remaining))
       (parse-error input (token-char-at (first remaining)) "statement is not end with ;"))
 
-    (values expr0 (rest remaining)))
+    (values node (rest remaining)))
 
   ;; program = (stmt)*
   (define (program tokens)
@@ -574,6 +596,15 @@
                                              "pop rax"
                                              "mov [rax],rdi"
                                              "push rdi")
+                                           "\n\t"
+                                           #:before-first "\t"
+                                           #:after-last "\n"))]
+              [(node-return? node)
+               (string-append (generate-rec (node-left node))
+                              (string-join '("pop rax"
+                                             "mov rsp, rbp"
+                                             "pop rbp"
+                                             "ret")
                                            "\n\t"
                                            #:before-first "\t"
                                            #:after-last "\n"))]
