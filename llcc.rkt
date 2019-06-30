@@ -19,6 +19,12 @@
 (define (token-return char-at)
   (token 'return "return" char-at))
 
+(define (token-if char-at)
+  (token 'if "if" char-at))
+
+(define (token-else char-at)
+  (token 'else "else" char-at))
+
 (define (token-operator op char-at)
   (token 'operator op char-at))
 
@@ -66,6 +72,12 @@
 
 (define (token-return? token)
   (equal? (token-type token) 'return))
+
+(define (token-if? token)
+  (equal? (token-type token) 'if))
+
+(define (token-else? token)
+  (equal? (token-type token) 'else))
 
 (define (token-operator? token)
   (equal? (token-type token) 'operator))
@@ -190,11 +202,13 @@
           [(char-lower-case? (peek lst))
            (define-values (taken remaining)
              (take-while lst (lambda (c) (or (char-numeric? c) (char-alphabetic? c)))))
-           (define name (list->string taken))
+           (define keyword (list->string taken))
            (define token
-             (cond [(equal? name "return") (token-return char-at)]
-                   [else
-                    (token-identifier name char-at)]))
+             (match keyword
+               ["return" (token-return char-at)]
+               ["if" (token-if char-at)]
+               [ "else" (token-else char-at)]
+               [_ (token-identifier keyword char-at)]))
            (cons token (tokenize-rec remaining (+ (length taken) char-at)))]
           (else
            (tokenize-error expr char-at "unexpected value"))))
@@ -239,6 +253,9 @@
   (set-node-offset! local-variable offset)
   local-variable)
 
+(define (node-if expr-pred stmt-true stmt-false)
+  (node 'if expr-pred stmt-true stmt-false))
+
 (define (node-operator left right op)
   (node 'operator left right op))
 
@@ -272,6 +289,9 @@
 (define (node-return? node)
   (equal? (node-type node) 'return))
 
+(define (node-if? node)
+  (equal? (node-type node) 'if))
+
 (define (node-operator? node)
   (equal? (node-type node) 'operator))
 
@@ -304,6 +324,13 @@
         [(equal? op #\<) #\>]
         [(equal? op "<=") ">="]
         [(equal? op ">=") "<="]))
+
+(define (token-must-be token-pred tokens input)
+  (cond [(empty? tokens)
+         (parse-error input (string-length input) "assign ends unexpectedly")]
+        [(not (token-pred (first tokens)))
+         (parse-error input (token-char-at (first tokens))
+                      (format "wrong token: ~a" (object-name token-pred)))]))
 
 (define (parse input)
   (define variable-offsets (make-hash))
@@ -422,23 +449,33 @@
   (define (expr tokens)
     (assign tokens))
 
-  ;; stmt = expr ";" | "return" expr ";"
+  ;; stmt = expr ";"
+  ;;      | "return" expr ";"
+  ;;      | "if" "(" expr ")" stmt ("else" stmt)?
   (define (stmt tokens)
     (define-values (node remaining)
       (cond [(empty? tokens)
              (parse-error input (string-length input) "stmt is empty")]
             [(token-return? (first tokens))
              (define-values (expr0 remaining) (expr (rest tokens)))
-             (values (node-return expr0) remaining)]
+             (token-must-be token-stmt? remaining input)
+             (values (node-return expr0) (rest remaining))]
+            [(token-if? (first tokens))
+             (token-must-be token-lparen? (rest tokens) input)
+             (define-values (expr-pred remaining0) (expr (rest (rest tokens))))
+             (token-must-be token-rparen? remaining0 input)
+             (define-values (stmt-true remaining1) (stmt (rest remaining0)))
+             (cond [(token-else? (first remaining1))
+                    (define-values (stmt-false remaining2) (stmt (rest remaining1)))
+                    (values (node-if expr-pred stmt-true stmt-false)  remaining2)]
+                   [else
+                    (values (node-if expr-pred stmt-true null) remaining1)])]
             [else
-             (expr tokens)]))
+             (define-values (expr0 remaining) (expr tokens))
+             (token-must-be token-stmt? remaining input)
+             (values expr0 (rest remaining))]))
 
-    (when (empty? remaining)
-      (parse-error input (token-char-at (string-length input)) "statement ends unexpectedly"))
-    (unless (token-stmt? (first remaining))
-      (parse-error input (token-char-at (first remaining)) "statement is not end with ;"))
-
-    (values node (rest remaining)))
+    (values node remaining))
 
   ;; program = (stmt)*
   (define (program tokens)
@@ -564,6 +601,13 @@
     "push rax"))
 
 (define (generate nodes)
+  (define gen-label
+    ((lambda ()
+       (define label-num 0)
+       (lambda ()
+         (set! label-num (add1 label-num))
+         (format ".Llabel~a" label-num)))))
+
   (define (generate-rec node)
     (if (null? node)
         ""
@@ -580,6 +624,18 @@
                  ,@(pop-result)
                  ,@(free-local-variables)
                  ,@(return))]
+              [(node-if? node)
+               (define label-else (gen-label))
+               (define label-end (gen-label))
+               `(,@(generate-rec (node-left node))
+                 ,@(list "pop rax"
+                         "cmp rax, 0"
+                         (format "je ~a" label-else))
+                 ,@(generate-rec (node-right node))
+                 ,(format "jmp ~a" label-end)
+                 ,(format "~a:" label-else)
+                 ,@(generate-rec (node-val node))
+                 ,(format "~a:" label-end))]
               [(node-operator? node)
                `(,@(generate-rec (node-left node))
                  ,@(generate-rec (node-right node))
