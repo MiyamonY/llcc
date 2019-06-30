@@ -253,6 +253,12 @@
 (define (node-number? node)
   (equal? (node-type node) 'number))
 
+(define (node-local-variable? node)
+  (equal? (node-type node) 'local-variable))
+
+(define (node-assign? node)
+  (equal? (node-type node) 'assign))
+
 (define (node-operator? node)
   (equal? (node-type node) 'operator))
 
@@ -442,6 +448,20 @@
 (define (push num)
   (format "\tpush ~a\n" num))
 
+(define (reserve-stack)
+  (string-join '("push rbp"
+                 "mov rbp, rsp"
+                 "sub rsp, 208")
+               "\n\t"
+               #:before-first "\t"
+               #:after-last "\n"))
+
+(define (reset-stack)
+  (string-join '("mov rsp, rbp"
+                 "pop rbp")
+               "\n\t"
+               #:before-first "\t"
+               #:after-last "\n"))
 (define (push-result)
   "\tpush rax\n")
 
@@ -507,11 +527,41 @@
   (raise-user-error
    'generate-error "~a\n" msg))
 
+(define (generate-left-value node)
+  (unless (node-local-variable? node)
+    (generate-error (format "left value must be local variable: ~a" (node-val node))))
+
+  (string-join (list
+                "mov rax, rbp"
+                (format "sub rax, ~a" (node-offset node))
+                "push rax")
+               "\n\t"
+               #:before-first "\t"
+               #:after-last "\n"))
+
 (define (generate node)
   (define (generate-rec node)
     (if (null? node)
         ""
         (cond [(node-number? node) (push (node-val node))]
+              [(node-local-variable? node)
+               (string-append (generate-left-value node)
+                              (string-join '("pop rax"
+                                             "mov rax, [rax]"
+                                             "push rax")
+                                           "\n\t"
+                                           #:before-first "\t"
+                                           #:after-last "\n"))]
+              [(node-assign? node)
+               (string-append (generate-left-value (node-left node))
+                              (generate-rec (node-right node))
+                              (string-join '("pop rdi"
+                                             "pop rax"
+                                             "mov [rax],rdi"
+                                             "push rdi")
+                                           "\n\t"
+                                           #:before-first "\t"
+                                           #:after-last "\n"))]
               [(node-operator? node)
                (string-append
                 (generate-rec (node-left node))
@@ -533,8 +583,10 @@
    ".intel_syntax noprefix\n"
    ".global main\n"
    "main:\n"
+   (reserve-stack)
    (generate-rec node)
    (pop-result)
+   (reset-stack)
    "\tret"))
 
 (define (compile expr)
