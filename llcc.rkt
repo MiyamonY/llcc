@@ -5,8 +5,6 @@
 (struct token (type val char-at)
   #:transparent)
 
-(define (token-null) null)
-
 (define (token-number num char-at)
   (token 'number num char-at))
 
