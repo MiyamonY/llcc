@@ -319,7 +319,7 @@
          (set! offset (+ offset 8))
          offset))))
 
-  ;; term = num | ident "(" expr ")""
+  ;; term = num | ident | "(" expr ")""
   (define (term tokens)
     (when (null? tokens)
       (parse-error input (string-length input) "expression ends unexpectedly"))
