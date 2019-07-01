@@ -2,128 +2,110 @@
 
 (require racket/cmdline)
 
-(struct token (type val char-at)
+(struct token (char-at)
   #:transparent)
 
-(define (token-number num char-at)
-  (token 'number num char-at))
+(struct token-number token (num)
+  #:transparent)
 
-(define (token-identifier name char-at)
-  (token 'identifier name char-at))
+(struct token-return token ()
+  #:transparent)
 
-(define (token-stmt char-at)
-  (token 'statement #\; char-at))
+(struct token-stmt token ()
+  #:transparent)
 
-(define (token-return char-at)
-  (token 'return "return" char-at))
+(struct token-identifier token (name)
+  #:transparent)
+
+(struct token-if token ()
+  #:transparent)
+
+(struct token-else token ()
+  #:transparent)
+
+(struct token-paren token (val)
+  #:transparent)
 
 (define (token-lparen char-at)
-  (token 'paren "(" char-at))
+  (token-paren char-at "("))
 
 (define (token-rparen char-at)
-  (token 'paren ")" char-at))
+  (token-paren char-at ")"))
 
-(define (token-if char-at)
-  (token 'if "if" char-at))
+(define (token-lparen? token)
+  (and (token-paren? token) (equal? (token-paren-val token) "(")))
 
-(define (token-else char-at)
-  (token 'else "else" char-at))
+(define (token-rparen? token)
+  (and (token-paren? token) (equal? (token-paren-val token) ")")))
 
-(define (token-operator op char-at)
-  (token 'operator op char-at))
+(struct token-operator token (op)
+  #:transparent)
 
 (define (token-plus char-at)
-  (token-operator "+" char-at))
+  (token-operator char-at "+"))
 
 (define (token-sub char-at)
-  (token-operator "-" char-at))
+  (token-operator char-at "-"))
 
 (define (token-eq char-at)
-  (token-operator "==" char-at))
+  (token-operator char-at "=="))
 
 (define (token-neq char-at)
-  (token-operator "!=" char-at))
+  (token-operator char-at "!="))
 
 (define (token-lt char-at)
-  (token-operator "<" char-at))
+  (token-operator char-at "<" ))
 
 (define (token-le char-at)
-  (token-operator "<=" char-at))
+  (token-operator char-at "<="))
 
 (define (token-gt char-at)
-  (token-operator ">" char-at))
+  (token-operator char-at ">"))
 
 (define (token-ge char-at)
-  (token-operator ">=" char-at))
+  (token-operator char-at ">="))
 
 (define (token-assign char-at)
-  (token-operator "=" char-at))
-
-(define (token-number? token)
-  (equal? (token-type token) 'number))
-
-(define (token-stmt? token)
-  (equal? (token-type token) 'statement))
-
-(define (token-identifier? token)
-  (equal? (token-type token) 'identifier))
-
-(define (token-return? token)
-  (equal? (token-type token) 'return))
-
-(define (token-if? token)
-  (equal? (token-type token) 'if))
-
-(define (token-else? token)
-  (equal? (token-type token) 'else))
-
-(define (token-operator? token)
-  (equal? (token-type token) 'operator))
+  (token-operator char-at "="))
 
 (define (token-plus? token)
-  (and (token-operator? token) (equal? (token-val token) "+")))
+  (and (token-operator? token) (equal? (token-operator-op token) "+")))
 
 (define (token-add? token)
   (token-plus? token))
 
 (define (token-minus? token)
-  (and (token-operator? token) (equal? (token-val token) "-")))
+  (and (token-operator? token) (equal? (token-operator-op token) "-")))
 
 (define (token-sub? token)
   (token-minus? token))
 
 (define (token-mul? token)
-  (and (token-operator? token) (equal? (token-val token) "*")))
+  (and (token-operator? token) (equal? (token-operator-op token) "*")))
 
 (define (token-div? token)
-  (and (token-operator? token) (equal? (token-val token) "/")))
-
-(define (token-lparen? token)
-  (and (equal? (token-type token) 'paren) (equal? (token-val token) "(")))
-
-(define (token-rparen? token)
-  (and (equal? (token-type token) 'paren) (equal? (token-val token) ")")))
+  (and (token-operator? token) (equal? (token-operator-op token) "/")))
 
 (define (token-eq? token)
-  (and (token-operator? token) (equal? (token-val token) "==")))
+  (and (token-operator? token) (equal? (token-operator-op token) "==")))
 
 (define (token-neq? token)
-  (and (token-operator? token) (equal? (token-val token) "!=")))
+  (and (token-operator? token) (equal? (token-operator-op token) "!=")))
 
 (define (token-lt? token)
-  (and (token-operator? token) (equal? (token-val token) "<")))
+  (and (token-operator? token) (equal? (token-operator-op token) "<")))
 
 (define (token-le? token)
-  (and (token-operator? token) (equal? (token-val token) "<=")))
+  (and (token-operator? token) (equal? (token-operator-op token) "<=")))
 
 (define (token-gt? token)
-  (and (token-operator? token) (equal? (token-val token) ">")))
+  (and (token-operator? token) (equal? (token-operator-op token) ">")))
 
 (define (token-ge? token)
-  (and (token-operator? token) (equal? (token-val token) ">=")))
+  (and (token-operator? token) (equal? (token-operator-op token) ">=")))
 
 (define (token-assign? token)
-  (and (token-operator? token) (equal? (token-val token) "=")))
+  (and (token-operator? token) (equal? (token-operator-op token) "=")))
 
 (define (take-while lst f)
   (cond
@@ -160,7 +142,7 @@
           [(equal? (peek lst) #\space)
            (tokenize-rec (rest lst) (add1 char-at))]
           [(member (peek lst) '(#\+ #\- #\* #\/))
-           (cons (token-operator (string (peek lst)) char-at)
+           (cons (token-operator char-at (string (peek lst)))
                  (tokenize-rec (rest lst) (add1 char-at)))]
           [(equal? (peek lst) #\()
            (cons (token-lparen char-at) (tokenize-rec (rest lst) (add1 char-at)))]
@@ -195,7 +177,7 @@
            (cons (token-stmt char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
-           (cons (token-number (string->number (list->string taken)) char-at)
+           (cons (token-number char-at (string->number (list->string taken)))
                  (tokenize-rec remaining (+ (length taken) char-at)))]
           [(char-lower-case? (peek lst))
            (define-values (taken remaining)
@@ -206,7 +188,7 @@
                ["return" (token-return char-at)]
                ["if" (token-if char-at)]
                [ "else" (token-else char-at)]
-               [_ (token-identifier keyword char-at)]))
+               [_ (token-identifier char-at keyword)]))
            (cons token (tokenize-rec remaining (+ (length taken) char-at)))]
           (else
            (tokenize-error expr char-at "unexpected value"))))
@@ -215,18 +197,18 @@
 
 (module+ test
   (check-equal? (tokenize "1+2")
-                (list (token-number 1 0)
+                (list (token-number 0 1)
                       (token-plus 1)
                       (token-number 2 2)))
 
   (check-equal? (tokenize "a+b;a=1;")
-                (list (token-identifier "a" 0)
+                (list (token-identifier 0 "a")
                       (token-plus 1)
-                      (token-identifier "b" 2)
+                      (token-identifier 2 "b")
                       (token-stmt 3)
-                      (token-identifier "a" 4)
+                      (token-identifier 4 "a")
                       (token-assign 5)
-                      (token-number 1 6)
+                      (token-number 6 1)
                       (token-stmt 7))))
 
 (define (parse-error expr char-at msg)
@@ -326,9 +308,9 @@
 
     (define token0 (car tokens))
     (cond [(token-number? token0)
-           (values (node-number (token-val token0)) (cdr tokens))]
+           (values (node-number (token-number-num token0)) (cdr tokens))]
           [(token-identifier? token0)
-           (define name (token-val token0))
+           (define name (token-identifier-name token0))
            (define offset
              (or (hash-ref variable-offsets name #f)
                  (let ([offset (new-offset)])
@@ -361,7 +343,7 @@
       (cond [(null? tokens) (values unary0 tokens)]
             [(or (token-mul? (car tokens)) (token-div? (car tokens)))
              (define-values (unary1 remaining) (unary (cdr tokens)))
-             (mul-rec (node-operator (token-val (car tokens)) unary0 unary1) remaining)]
+             (mul-rec (node-operator (token-operator-op (car tokens)) unary0 unary1) remaining)]
             [else (values unary0 tokens)]))
     (call-with-values (lambda () (unary tokens)) mul-rec))
 
@@ -372,7 +354,7 @@
             [(or (token-add? (first tokens)) (token-sub? (first tokens)))
              (define operator (first tokens))
              (define-values (mul1 remaining) (mul (rest tokens)))
-             (add-rec (node-operator (token-val operator) mul0 mul1) remaining)]
+             (add-rec (node-operator (token-operator-op operator) mul0 mul1) remaining)]
             [else (values mul0 tokens)]))
 
     (call-with-values (lambda () (mul tokens)) add-rec))
@@ -384,11 +366,12 @@
             [(or (token-lt? (first tokens)) (token-le? (first tokens)))
              (define operator (first tokens))
              (define-values (add1 remaining) (add (rest tokens)))
-             (relational-rec (node-operator (token-val operator) add0 add1) remaining)]
+             (relational-rec (node-operator (token-operator-op operator) add0 add1) remaining)]
             [(or (token-gt? (first tokens)) (token-ge? (first tokens)))
              (define operator (first tokens))
              (define-values (add1 remaining) (add (rest tokens)))
-             (relational-rec (node-operator (reverse-compare (token-val operator)) add1 add0) remaining)]
+             (relational-rec (node-operator
+                              (reverse-compare (token-operator-op operator)) add1 add0) remaining)]
             [else (values add0 tokens)]))
 
     (call-with-values (lambda () (add tokens)) relational-rec))
