@@ -337,8 +337,7 @@
            (values (node-local-variable name offset) (cdr tokens))]
           [(token-lparen? token0)
            (define-values (expr0 remaining) (expr (cdr tokens)))
-           (unless (token-rparen? (car remaining))
-             (parse-error input (token-char-at (car remaining)) "paren is not closed"))
+           (token-must-be token-rparen? remaining input)
            (values expr0 (cdr remaining))]
           [else
            (parse-error input (token-char-at token0) "token must be number or (")]))
@@ -361,8 +360,8 @@
     (define (mul-rec unary0 tokens)
       (cond [(null? tokens) (values unary0 tokens)]
             [(or (token-mul? (car tokens)) (token-div? (car tokens)))
-             (let-values ([(unary1 remaining) (unary (cdr tokens))])
-               (mul-rec (node-operator (token-val (car tokens)) unary0 unary1) remaining))]
+             (define-values (unary1 remaining) (unary (cdr tokens)))
+             (mul-rec (node-operator (token-val (car tokens)) unary0 unary1) remaining)]
             [else (values unary0 tokens)]))
     (call-with-values (lambda () (unary tokens)) mul-rec))
 
@@ -371,9 +370,9 @@
     (define (add-rec mul0 tokens)
       (cond [(null? tokens) (values mul0 tokens)]
             [(or (token-add? (first tokens)) (token-sub? (first tokens)))
-             (let-values ([(operator) (first tokens)]
-                          [(mul1 remaining) (mul (rest tokens))])
-               (add-rec (node-operator (token-val operator) mul0 mul1) remaining))]
+             (define operator (first tokens))
+             (define-values (mul1 remaining) (mul (rest tokens)))
+             (add-rec (node-operator (token-val operator) mul0 mul1) remaining)]
             [else (values mul0 tokens)]))
 
     (call-with-values (lambda () (mul tokens)) add-rec))
@@ -383,13 +382,13 @@
     (define (relational-rec add0 tokens)
       (cond [(empty? tokens) (values add0 tokens)]
             [(or (token-lt? (first tokens)) (token-le? (first tokens)))
-             (let-values ([(operator) (first tokens)]
-                          [(add1 remaining) (add (rest tokens))])
-               (relational-rec (node-operator (token-val operator) add0 add1) remaining))]
+             (define operator (first tokens))
+             (define-values (add1 remaining) (add (rest tokens)))
+             (relational-rec (node-operator (token-val operator) add0 add1) remaining)]
             [(or (token-gt? (first tokens)) (token-ge? (first tokens)))
-             (let-values ([(operator) (first tokens)]
-                          [(add1 remaining) (add (rest tokens))])
-               (relational-rec (node-operator (reverse-compare (token-val operator)) add1 add0) remaining))]
+             (define operator (first tokens))
+             (define-values (add1 remaining) (add (rest tokens)))
+             (relational-rec (node-operator (reverse-compare (token-val operator)) add1 add0) remaining)]
             [else (values add0 tokens)]))
 
     (call-with-values (lambda () (add tokens)) relational-rec))
