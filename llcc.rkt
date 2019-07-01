@@ -233,25 +233,25 @@
   (raise-user-error
    'parse-error  "\n~a\n~a^\n~a\n" expr (make-string char-at #\space) msg))
 
-(struct node-super ()
+(struct node ()
   #:transparent)
 
-(struct node-number node-super (val)
+(struct node-number node (val)
   #:transparent)
 
-(struct node-assign node-super (left right)
+(struct node-assign node (left right)
   #:transparent)
 
-(struct node-local-variable node-super (name offset)
+(struct node-local-variable node (name offset)
   #:transparent)
 
-(struct node-return node-super (expr)
+(struct node-return node (expr)
   #:transparent)
 
-(struct node-if node-super (conditional true-clause false-clause)
+(struct node-if node (conditional true-clause false-clause)
   #:transparent)
 
-(struct node-operator (op left right)
+(struct node-operator node (op left right)
   #:transparent)
 
 (define (node-plus left right)
