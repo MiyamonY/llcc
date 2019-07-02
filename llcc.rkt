@@ -41,12 +41,6 @@
 (struct token-operator token (op)
   #:transparent)
 
-(define (token-plus char-at)
-  (token-operator char-at "+"))
-
-(define (token-sub char-at)
-  (token-operator char-at "-"))
-
 (define (token-eq char-at)
   (token-operator char-at "=="))
 
@@ -196,20 +190,8 @@
   (tokenize-rec (string->list expr) 0))
 
 (module+ test
-  (check-equal? (tokenize "1+2")
-                (list (token-number 0 1)
-                      (token-plus 1)
-                      (token-number 2 2)))
-
-  (check-equal? (tokenize "a+b;a=1;")
-                (list (token-identifier 0 "a")
-                      (token-plus 1)
-                      (token-identifier 2 "b")
-                      (token-stmt 3)
-                      (token-identifier 4 "a")
-                      (token-assign 5)
-                      (token-number 6 1)
-                      (token-stmt 7))))
+  (test-exn "invalid operator "#rx"tokenize-error" (lambda () (tokenize "1 !! 2")))
+  (check-exn #rx"tokenize-error" (lambda () (tokenize "~"))))
 
 (define (parse-error expr char-at msg)
   (raise-user-error
@@ -235,9 +217,6 @@
 
 (struct node-operator node (op left right)
   #:transparent)
-
-(define (node-plus left right)
-  (node-operator "+" left right))
 
 (define (node-sub left right)
   (node-operator "-" left right ))
@@ -424,7 +403,9 @@
              (define-values (conditional remaining0) (expr (rest (rest tokens))))
              (token-must-be token-rparen? remaining0 input)
              (define-values (true-clause remaining1) (stmt (rest remaining0)))
-             (cond [(token-else? (first remaining1))
+             (cond [(null? remaining1)
+                    (values (node-if conditional true-clause null) remaining1)]
+                   [(token-else? (first remaining1))
                     (define-values (false-clause remaining2) (stmt (rest remaining1)))
                     (values (node-if conditional true-clause false-clause)  remaining2)]
                    [else
@@ -448,34 +429,78 @@
   (program (tokenize input)))
 
 (module+ test
-  (check-equal?
-   (parse "12;") (list (node-number 12)))
+  (define (node-add left right)
+    (node-operator "+" left right))
 
-  (check-equal?
-   (parse "12+34;")
-   (list (node-plus (node-number 12) (node-number 34))))
+  (define (node-mul left right)
+    (node-operator "*" left right))
 
-  (check-equal?
-   (parse " -12+ 34- 12;")
-   (list (node-sub (node-plus (node-sub (node-number 0) (node-number 12)) (node-number 34))
-                   (node-number 12))))
+  (define (node-div left right)
+    (node-operator "/" left right))
 
-  (check-equal?
-   (parse "x=y=1;")
-   (list (node-assign (node-local-variable "x" 8)
-                      (node-assign (node-local-variable "y" 16)
-                                   (node-number 1)))))
+  (test-equal? "num" (parse "12;") (list (node-number 12)))
+
+  (test-equal? "identifier" (parse "x;") (list (node-local-variable "x" 8)))
+
+  (test-equal? "parens" (parse "(1+2);") (list (node-add (node-number 1) (node-number 2))))
+
+  (test-equal? "unary plus" (parse "+1;") (list (node-number 1)))
+
+  (test-equal? "unary minus" (parse "-3;") (list (node-sub (node-number 0) (node-number 3))))
+
+  (test-equal? "mul muls and divs" (parse "2*3/2*3/2;")
+               (list
+                (node-div
+                 (node-mul
+                  (node-div
+                   (node-mul
+                    (node-number 2) (node-number 3)) (node-number 2)) (node-number 3)) (node-number 2))))
+
+  (test-equal? "relationals" (parse "1<2<=3>=2>1;")
+               (list
+                (node-lt (node-number 1)
+                         (node-le (node-number 2)
+                                  (node-le
+                                   (node-lt (node-number 1) (node-number 2)) (node-number 3))))))
+
+  (test-equal? "euqalities" (parse "1==2 != 3;")
+               (list (node-neq (node-eq (node-number 1) (node-number 2)) (node-number 3))))
+
+  (test-equal? "assign" (parse "x=y=1;")
+               (list (node-assign (node-local-variable "x" 8)
+                                  (node-assign (node-local-variable "y" 16) (node-number 1)))))
+
+  (test-equal? "return" (parse "return 3;")
+               (list (node-return (node-number 3))))
+
+  (test-equal? "ifs"
+               (parse "if (1 <= 2 ) return 3;if (1 < 2) return 3; else return 4;if(1) 1;")
+               (list
+                (node-if (node-le (node-number 1) (node-number 2))
+                         (node-return (node-number 3)) null)
+                (node-if (node-lt (node-number 1) (node-number 2))
+                         (node-return (node-number 3)) (node-return (node-number 4)))
+                (node-if (node-number 1) (node-number 1) null)))
 
   (define input-for-exn
     '("12+;"
       "12+ +;"
+      "12+ -;"
+      ";"
       " 12+ 34 12;"
       " 12+ 34"
       " 12+ 34=;"
-      " 12+ 34<;"))
+      " 12+ 34<;"
+      "if(1+2) 3 else return 4;"
+      "if(1 return 3; else retunr 4;"
+      "if(1+2) 3; else "
+      "if(1+2); "
+      "if(1+2"
+      "3/"
+      "3/-"))
 
   (for-each (lambda (input)
-              (check-exn #rx"parse-error" (lambda () (parse input))))
+              (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse input))))
             input-for-exn))
 
 (define (generate-error msg)
@@ -629,7 +654,7 @@
    "\n"))
 
 (define (compile expr)
-  (displayln (generate (parse expr))))
+  (generate (parse expr)))
 
 (module+ main
   (define expr
@@ -637,4 +662,4 @@
      #:args (expr)
      expr))
 
-  (compile expr))
+  (displayln (compile expr)))
