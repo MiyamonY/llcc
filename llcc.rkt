@@ -11,7 +11,7 @@
 (struct token-return token ()
   #:transparent)
 
-(struct token-stmt token ()
+(struct token-term token ()
   #:transparent)
 
 (struct token-identifier token (name)
@@ -171,7 +171,7 @@
                   (cons (token-gt char-at) (tokenize-rec (rest lst) (add1 char-at)))
                   ])]
           [(equal? (peek lst) #\;)
-           (cons (token-stmt char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+           (cons (token-term char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number char-at (string->number (list->string taken)))
@@ -404,7 +404,7 @@
              (parse-error input (string-length input) "stmt is empty")]
             [(token-return? (first tokens))
              (define-values (expr0 remaining) (expr (rest tokens)))
-             (token-must-be token-stmt? remaining input)
+             (token-must-be token-term? remaining input)
              (values (node-return expr0) (rest remaining))]
             [(token-if? (first tokens))
              (token-must-be token-lparen? (rest tokens) input)
@@ -426,7 +426,7 @@
              (values (node-while conditional body) remaining0)]
             [else
              (define-values (expr0 remaining) (expr tokens))
-             (token-must-be token-stmt? remaining input)
+             (token-must-be token-term? remaining input)
              (values expr0 (rest remaining))]))
 
     (values node remaining))
