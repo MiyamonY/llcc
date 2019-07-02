@@ -23,6 +23,9 @@
 (struct token-else token ()
   #:transparent)
 
+(struct token-while token ()
+  #:transparent)
+
 (struct token-paren token (val)
   #:transparent)
 
@@ -181,7 +184,8 @@
              (match keyword
                ["return" (token-return char-at)]
                ["if" (token-if char-at)]
-               [ "else" (token-else char-at)]
+               ["else" (token-else char-at)]
+               ["while" (token-while char-at)]
                [_ (token-identifier char-at keyword)]))
            (cons token (tokenize-rec remaining (+ (length taken) char-at)))]
           (else
@@ -213,6 +217,9 @@
   #:transparent)
 
 (struct node-if node (conditional true-clause false-clause)
+  #:transparent)
+
+(struct node-while node (conditional body)
   #:transparent)
 
 (struct node-operator node (op left right)
@@ -390,6 +397,7 @@
   ;; stmt = expr ";"
   ;;      | "return" expr ";"
   ;;      | "if" "(" expr ")" stmt ("else" stmt)?
+  ;;      | "while" "(" expr ")" stmt
   (define (stmt tokens)
     (define-values (node remaining)
       (cond [(empty? tokens)
@@ -410,6 +418,12 @@
                     (values (node-if conditional true-clause false-clause)  remaining2)]
                    [else
                     (values (node-if conditional true-clause null) remaining1)])]
+            [(token-while? (first tokens))
+             (token-must-be token-lparen? (rest tokens) input)
+             (define-values (conditional remaining) (expr (rest (rest tokens))))
+             (token-must-be token-rparen? remaining input)
+             (define-values (body remaining0) (stmt (rest remaining)))
+             (values (node-while conditional body) remaining0)]
             [else
              (define-values (expr0 remaining) (expr tokens))
              (token-must-be token-stmt? remaining input)
@@ -482,6 +496,10 @@
                          (node-return (node-number 3)) (node-return (node-number 4)))
                 (node-if (node-number 1) (node-number 1) null)))
 
+  (test-equal? "whiles"
+               (parse "while (x<3) return 4;")
+               (list (node-while (node-lt (node-local-variable "x" 8) (node-number 3))
+                                 (node-return (node-number 4)))))
   (define input-for-exn
     '("12+;"
       "12+ +;"
@@ -620,6 +638,18 @@
                  ,(format "~a:" label-else)
                  ,@(generate-rec (node-if-false-clause node))
                  ,(format "~a:" label-end))]
+              [(node-while? node)
+               (define label-start (gen-label))
+               (define label-end (gen-label))
+               `(,(format "~a:" label-start)
+                 ,@(generate-rec (node-while-conditional node))
+                 ,@(list "pop rax"
+                         "cmp rax, 0"
+                         (format "je ~a" label-end))
+                 ,@(generate-rec (node-while-body node))
+                 ,(format "jmp ~a" label-start)
+                 ,(format "~a:" label-end))
+               ]
               [(node-operator? node)
                `(,@(generate-rec (node-operator-left node))
                  ,@(generate-rec (node-operator-right node))

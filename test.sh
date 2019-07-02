@@ -49,5 +49,7 @@ try 28 'awf=awef=3+2*2; awef+awf*3;'
 try 170 'abc=3*4+5; return 10*abc; abc=0; return abc;'
 try 10 'if (3*4*0) return 1; else return 10;'
 try 3 'if ( 2*4+1 ) x=3; else x=5; return x;'
+try 5 'x=0; while(x<5) x = x + 1; return x;'
+try 4 'x=0; y=0; while (x < 4) x = y = y +1; return y;'
 
 echo OK
