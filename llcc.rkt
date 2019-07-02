@@ -26,6 +26,9 @@
 (struct token-while token ()
   #:transparent)
 
+(struct token-for token ()
+  #:transparent)
+
 (struct token-paren token (val)
   #:transparent)
 
@@ -186,6 +189,7 @@
                ["if" (token-if char-at)]
                ["else" (token-else char-at)]
                ["while" (token-while char-at)]
+               ["for" (token-for char-at)]
                [_ (token-identifier char-at keyword)]))
            (cons token (tokenize-rec remaining (+ (length taken) char-at)))]
           (else
@@ -220,6 +224,9 @@
   #:transparent)
 
 (struct node-while node (conditional body)
+  #:transparent)
+
+(struct node-for node (init conditional next body)
   #:transparent)
 
 (struct node-operator node (op left right)
@@ -398,6 +405,7 @@
   ;;      | "return" expr ";"
   ;;      | "if" "(" expr ")" stmt ("else" stmt)?
   ;;      | "while" "(" expr ")" stmt
+  ;;      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
   (define (stmt tokens)
     (define-values (node remaining)
       (cond [(empty? tokens)
@@ -424,6 +432,28 @@
              (token-must-be token-rparen? remaining input)
              (define-values (body remaining0) (stmt (rest remaining)))
              (values (node-while conditional body) remaining0)]
+            [(token-for? (first tokens))
+             (token-must-be token-lparen? (rest tokens) input)
+             (define-values (init remaining0)
+               (if (token-term? (caddr tokens))
+                   (values null (cddr tokens))
+                   (expr (cddr tokens))))
+             (token-must-be token-term? remaining0 input)
+
+             (define-values (conditional remaining1)
+               (if (token-term? (cadr remaining0))
+                   (values null (rest remaining0))
+                   (expr (rest remaining0))))
+             (token-must-be token-term? remaining1 input)
+
+             (define-values (next remaining2)
+               (if (token-rparen? (cadr remaining1))
+                   (values null (rest remaining1))
+                   (expr (rest remaining1))))
+             (token-must-be token-rparen? remaining2 input)
+
+             (define-values (body remaining3) (stmt (rest remaining2)))
+             (values (node-for init conditional next body) remaining3)]
             [else
              (define-values (expr0 remaining) (expr tokens))
              (token-must-be token-term? remaining input)
@@ -500,6 +530,24 @@
                (parse "while (x<3) return 4;")
                (list (node-while (node-lt (node-local-variable "x" 8) (node-number 3))
                                  (node-return (node-number 4)))))
+
+  (test-equal? "for all"
+               (parse "for (x=0; x < 10; x = x + 1) 2 + 3;")
+               (list (node-for (node-assign (node-local-variable "x" 8) (node-number 0))
+                               (node-lt (node-local-variable "x" 8) (node-number 10))
+                               (node-assign (node-local-variable "x" 8)
+                                            (node-add
+                                             (node-local-variable "x" 8)
+                                             (node-number 1)))
+                               (node-add (node-number 2) (node-number 3)))))
+
+  (test-equal? "for while"
+               (parse "for (;;) 1;")
+               (list (node-for null
+                               null
+                               null
+                               (node-number 1))))
+
   (define input-for-exn
     '("12+;"
       "12+ +;"
@@ -594,6 +642,9 @@
     "mov [rax],rdi"
     "push rdi"))
 
+(define (generate-label label)
+  `(,(format "~a:" label)))
+
 (define (generate-left-value node)
   (unless (node-local-variable? node)
     (generate-error (format "left value must be local variable: ~a" (object-name node))))
@@ -601,6 +652,7 @@
   `("mov rax, rbp"
     ,(format "sub rax, ~a" (node-local-variable-offset node))
     "push rax"))
+
 
 (define (generate nodes)
   (define gen-label
@@ -648,8 +700,21 @@
                          (format "je ~a" label-end))
                  ,@(generate-rec (node-while-body node))
                  ,(format "jmp ~a" label-start)
-                 ,(format "~a:" label-end))
-               ]
+                 ,(format "~a:" label-end))]
+              [(node-for? node)
+               (define label-start (gen-label))
+               (define label-end (gen-label))
+               `(,@(generate-rec (node-for-init node))
+                 ,@(pop-result)
+                 ,@(generate-label label-start)
+                 ,@(generate-rec (node-for-conditional node))
+                 ,@(list "pop rax"
+                         "cmp rax, 0"
+                         (format "je ~a" label-end))
+                 ,@(generate-rec (node-for-body node))
+                 ,@(generate-rec (node-for-next node))
+                 ,(format "jmp ~a" label-start)
+                 ,@(generate-label label-end))]
               [(node-operator? node)
                `(,@(generate-rec (node-operator-left node))
                  ,@(generate-rec (node-operator-right node))

@@ -51,5 +51,6 @@ try 10 'if (3*4*0) return 1; else return 10;'
 try 3 'if ( 2*4+1 ) x=3; else x=5; return x;'
 try 5 'x=0; while(x<5) x = x + 1; return x;'
 try 4 'x=0; y=0; while (x < 4) x = y = y +1; return y;'
+try 20 'y = 0; for(x=0; x < 10; x = x + 1) y = y+2; return y;'
 
 echo OK
