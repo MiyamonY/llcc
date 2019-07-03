@@ -11,7 +11,7 @@
 (struct token-return token ()
   #:transparent)
 
-(struct token-term token ()
+(struct token-semicolon token ()
   #:transparent)
 
 (struct token-identifier token (name)
@@ -174,7 +174,7 @@
                   (cons (token-gt char-at) (tokenize-rec (rest lst) (add1 char-at)))
                   ])]
           [(equal? (peek lst) #\;)
-           (cons (token-term char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+           (cons (token-semicolon char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number char-at (string->number (list->string taken)))
@@ -412,7 +412,7 @@
              (parse-error input (string-length input) "stmt is empty")]
             [(token-return? (first tokens))
              (define-values (expr0 remaining) (expr (rest tokens)))
-             (token-must-be token-term? remaining input)
+             (token-must-be token-semicolon? remaining input)
              (values (node-return expr0) (rest remaining))]
             [(token-if? (first tokens))
              (token-must-be token-lparen? (rest tokens) input)
@@ -435,16 +435,16 @@
             [(token-for? (first tokens))
              (token-must-be token-lparen? (rest tokens) input)
              (define-values (init remaining0)
-               (if (token-term? (caddr tokens))
+               (if (token-semicolon? (caddr tokens))
                    (values null (cddr tokens))
                    (expr (cddr tokens))))
-             (token-must-be token-term? remaining0 input)
+             (token-must-be token-semicolon? remaining0 input)
 
              (define-values (conditional remaining1)
-               (if (token-term? (cadr remaining0))
+               (if (token-semicolon? (cadr remaining0))
                    (values null (rest remaining0))
                    (expr (rest remaining0))))
-             (token-must-be token-term? remaining1 input)
+             (token-must-be token-semicolon? remaining1 input)
 
              (define-values (next remaining2)
                (if (token-rparen? (cadr remaining1))
@@ -456,7 +456,7 @@
              (values (node-for init conditional next body) remaining3)]
             [else
              (define-values (expr0 remaining) (expr tokens))
-             (token-must-be token-term? remaining input)
+             (token-must-be token-semicolon? remaining input)
              (values expr0 (rest remaining))]))
 
     (values node remaining))
