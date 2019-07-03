@@ -44,6 +44,21 @@
 (define (token-rparen? token)
   (and (token-paren? token) (equal? (token-paren-val token) ")")))
 
+(struct token-curly-brace token (val)
+  #:transparent)
+
+(define (token-lcurly-brace char-at)
+  (token-curly-brace char-at "{"))
+
+(define (token-rcurly-brace char-at)
+  (token-curly-brace char-at "}"))
+
+(define (token-lcurly-brace? token)
+  (and (token-curly-brace? token) (equal? (token-curly-brace-val token) "{")))
+
+(define (token-rcurly-brace? token)
+  (and (token-curly-brace? token) (equal? (token-curly-brace-val token) "}")))
+
 (struct token-operator token (op)
   #:transparent)
 
@@ -175,6 +190,10 @@
                   ])]
           [(equal? (peek lst) #\;)
            (cons (token-semicolon char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+          [(equal? (peek lst) #\{)
+           (cons (token-lcurly-brace char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+          [(equal? (peek lst) #\})
+           (cons (token-rcurly-brace char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number char-at (string->number (list->string taken)))
@@ -227,6 +246,9 @@
   #:transparent)
 
 (struct node-for node (init conditional next body)
+  #:transparent)
+
+(struct node-block node (bodys)
   #:transparent)
 
 (struct node-operator node (op left right)
@@ -406,6 +428,7 @@
   ;;      | "if" "(" expr ")" stmt ("else" stmt)?
   ;;      | "while" "(" expr ")" stmt
   ;;      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
+  ;;      | "{" stmt* "}"
   (define (stmt tokens)
     (define-values (node remaining)
       (cond [(empty? tokens)
@@ -454,6 +477,18 @@
 
              (define-values (body remaining3) (stmt (rest remaining2)))
              (values (node-for init conditional next body) remaining3)]
+            [(token-lcurly-brace? (first tokens))
+             (define (blocks-rec stmts tokens)
+               (cond [(null? tokens)
+                      (parse-error input (string-length input) "block ends unexpctedly")]
+                     [(token-rcurly-brace? (first tokens))
+                      (values (reverse stmts) (rest tokens))]
+                     [else
+                      (define-values (stmt0 remaining) (stmt tokens))
+                      (blocks-rec (cons stmt0 stmts) remaining)]))
+
+             (define-values (stmts remaining0) (blocks-rec '() (rest tokens)))
+             (values (node-block stmts) remaining0)]
             [else
              (define-values (expr0 remaining) (expr tokens))
              (token-must-be token-semicolon? remaining input)
@@ -547,6 +582,14 @@
                                null
                                null
                                (node-number 1))))
+  (test-equal? "blocks"
+               (parse "{a=1; b=2; c=a+b;return c;}")
+               (list (node-block (list
+                                  (node-assign (node-local-variable "a" 8) (node-number 1))
+                                  (node-assign (node-local-variable "b" 16) (node-number 2))
+                                  (node-assign (node-local-variable "c" 24)
+                                               (node-add (node-local-variable "a" 8) (node-local-variable "b" 16)))
+                                  (node-return (node-local-variable "c" 24))))))
 
   (define input-for-exn
     '("12+;"
@@ -563,7 +606,8 @@
       "if(1+2); "
       "if(1+2"
       "3/"
-      "3/-"))
+      "3/-"
+      "{1+2; "))
 
   (for-each (lambda (input)
               (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse input))))
@@ -715,6 +759,8 @@
                  ,@(generate-rec (node-for-next node))
                  ,(format "jmp ~a" label-start)
                  ,@(generate-label label-end))]
+              [(node-block? node)
+               (add-between (map generate-rec (node-block-bodys node)) "pop rax")]
               [(node-operator? node)
                `(,@(generate-rec (node-operator-left node))
                  ,@(generate-rec (node-operator-right node))
