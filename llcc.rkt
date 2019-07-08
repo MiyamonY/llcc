@@ -251,6 +251,9 @@
 (struct node-block node (bodys)
   #:transparent)
 
+(struct node-func-call node (func)
+  #:transparent)
+
 (struct node-operator node (op left right)
   #:transparent)
 
@@ -316,28 +319,31 @@
          (set! offset (+ offset 8))
          offset))))
 
-  ;; term = num | ident | "(" expr ")""
+  ;; term = num | ident ("(" ")")? | "(" expr ")""
   (define (term tokens)
     (when (null? tokens)
       (parse-error input (string-length input) "expression ends unexpectedly"))
 
-    (define token0 (car tokens))
-    (cond [(token-number? token0)
-           (values (node-number (token-number-num token0)) (cdr tokens))]
-          [(token-identifier? token0)
-           (define name (token-identifier-name token0))
-           (define offset
-             (or (hash-ref variable-offsets name #f)
-                 (let ([offset (new-offset)])
-                   (hash-set! variable-offsets name offset)
-                   offset)))
-           (values (node-local-variable name offset) (cdr tokens))]
-          [(token-lparen? token0)
-           (define-values (expr0 remaining) (expr (cdr tokens)))
+    (cond [(token-number? (first tokens))
+           (values (node-number (token-number-num (first tokens))) (rest tokens))]
+          [(token-identifier? (first tokens))
+           (cond [(token-lparen? (cadr tokens))
+                  (token-must-be token-rparen? (cddr tokens) "function call ends unexpectedly")
+                  (values (node-func-call (token-identifier-name (first tokens))) (cdddr tokens))]
+                 [else
+                  (define name (token-identifier-name (first tokens)))
+                  (define offset
+                    (or (hash-ref variable-offsets name #f)
+                        (let ([offset (new-offset)])
+                          (hash-set! variable-offsets name offset)
+                          offset)))
+                  (values (node-local-variable name offset) (cdr tokens))])]
+          [(token-lparen? (first tokens))
+           (define-values (expr0 remaining) (expr (rest tokens)))
            (token-must-be token-rparen? remaining input)
            (values expr0 (cdr remaining))]
           [else
-           (parse-error input (token-char-at token0) "token must be number or (")]))
+           (parse-error input (token-char-at (first tokens)) "token must be number or ( or identifier")]))
 
   ;; unary = ("+" | "-")? term
   (define (unary tokens)
@@ -521,6 +527,8 @@
 
   (test-equal? "identifier" (parse "x;") (list (node-local-variable "x" 8)))
 
+  (test-equal? "func call" (parse "test();") (list (node-func-call "test")))
+
   (test-equal? "parens" (parse "(1+2);") (list (node-add (node-number 1) (node-number 2))))
 
   (test-equal? "unary plus" (parse "+1;") (list (node-number 1)))
@@ -689,6 +697,9 @@
 (define (generate-label label)
   `(,(format "~a:" label)))
 
+(define (generate-func-call func)
+  `(,(format "call ~a" func)))
+
 (define (generate-left-value node)
   (unless (node-local-variable? node)
     (generate-error (format "left value must be local variable: ~a" (object-name node))))
@@ -696,7 +707,6 @@
   `("mov rax, rbp"
     ,(format "sub rax, ~a" (node-local-variable-offset node))
     "push rax"))
-
 
 (define (generate nodes)
   (define gen-label
@@ -761,6 +771,9 @@
                  ,@(generate-label label-end))]
               [(node-block? node)
                (add-between (map generate-rec (node-block-bodys node)) "pop rax")]
+              [(node-func-call? node)
+               (define func (node-func-call-func node))
+               (generate-func-call func)]
               [(node-operator? node)
                `(,@(generate-rec (node-operator-left node))
                  ,@(generate-rec (node-operator-right node))
