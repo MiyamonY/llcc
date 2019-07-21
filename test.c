@@ -1,11 +1,16 @@
 #include <stdio.h>
 /* gcc -c test.c */
-void test0(void) { printf("ok\n"); }
+int test0(void) { return 10; }
+int test1(long a) { return a + 3; }
 
-void test6(int a0, int a1, int a2, int a3, int a4, int a5) {
-  printf("%d %d %d %d %d %d\n", a0, a1, a2, a3, a4, a5);
+int test6(long a, long b, long c, long d, long e, long f) {
+  return a + b + c + d + e + f;
 }
 
 #if defined(TEST)
-void main(void) { test6(0, 1, 2, 3, 4, 5); }
+void main(void) {
+  int x = 0;
+  test6(x, 1, 2, 3, 4, 5);
+  printf("%d", x);
+}
 #endif

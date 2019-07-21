@@ -11,6 +11,9 @@
 (struct token-return token ()
   #:transparent)
 
+(struct token-comma token ()
+  #:transparent)
+
 (struct token-semicolon token ()
   #:transparent)
 
@@ -161,6 +164,8 @@
                  (tokenize-rec (rest lst) (add1 char-at)))]
           [(equal? (peek lst) #\()
            (cons (token-lparen char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+          [(equal? (peek lst) #\,)
+           (cons (token-comma char-at) (tokenize-rec (rest lst) (add1 char-at)) )]
           [(equal? (peek lst) #\))
            (cons (token-rparen char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(equal? (peek lst) #\=)
@@ -251,7 +256,7 @@
 (struct node-block node (bodys)
   #:transparent)
 
-(struct node-func-call node (func)
+(struct node-func-call node (func args)
   #:transparent)
 
 (struct node-operator node (op left right)
@@ -319,7 +324,7 @@
          (set! offset (+ offset 8))
          offset))))
 
-  ;; term = num | ident ("(" ")")? | "(" expr ")""
+  ;; term = num | ident ("(" (expr ("," expr)*) ? ")")? | "(" expr ")""
   (define (term tokens)
     (when (null? tokens)
       (parse-error input (string-length input) "expression ends unexpectedly"))
@@ -327,11 +332,22 @@
     (cond [(token-number? (first tokens))
            (values (node-number (token-number-num (first tokens))) (rest tokens))]
           [(token-identifier? (first tokens))
+           (define name (token-identifier-name (first tokens)))
            (cond [(token-lparen? (cadr tokens))
-                  (token-must-be token-rparen? (cddr tokens) "function call ends unexpectedly")
-                  (values (node-func-call (token-identifier-name (first tokens))) (cdddr tokens))]
+                  (define remaining (cddr tokens))
+                  (cond [(token-rparen? (car remaining))
+                         (values (node-func-call name '()) (cdr remaining))]
+                        [else
+                         (define (args-aux exprs tokens)
+                           (if (not (token-comma? (first tokens)))
+                               (values (reverse exprs) tokens)
+                               (let-values ([(expr0 remaining) (expr (cdr tokens))])
+                                 (args-aux (cons expr0 exprs)  remaining))))
+                         (define-values (expr0 remaining1) (expr remaining))
+                         (define-values (args remaining2) (args-aux (list expr0) remaining1))
+                         (token-must-be token-rparen? remaining2 input)
+                         (values (node-func-call name args) (cdr remaining2))])]
                  [else
-                  (define name (token-identifier-name (first tokens)))
                   (define offset
                     (or (hash-ref variable-offsets name #f)
                         (let ([offset (new-offset)])
@@ -527,7 +543,19 @@
 
   (test-equal? "identifier" (parse "x;") (list (node-local-variable "x" 8)))
 
-  (test-equal? "func call" (parse "test();") (list (node-func-call "test")))
+  (test-equal? "func call without args" (parse "test();")
+               (list (node-func-call "test" '())))
+
+  (test-equal? "func call with one arg" (parse "test(1);")
+               (list (node-func-call "test" (list (node-number 1)))))
+
+  (test-equal? "func call with max args" (parse "test(1,2,3,4,5,6);")
+               (list (node-func-call "test" (list (node-number 1)
+                                                  (node-number 2)
+                                                  (node-number 3)
+                                                  (node-number 4)
+                                                  (node-number 5)
+                                                  (node-number 6)))))
 
   (test-equal? "parens" (parse "(1+2);") (list (node-add (node-number 1) (node-number 2))))
 
@@ -598,7 +626,6 @@
                                   (node-assign (node-local-variable "c" 24)
                                                (node-add (node-local-variable "a" 8) (node-local-variable "b" 16)))
                                   (node-return (node-local-variable "c" 24))))))
-
   (define input-for-exn
     '("12+;"
       "12+ +;"
@@ -698,7 +725,16 @@
   `(,(format "~a:" label)))
 
 (define (generate-func-call func)
-  `(,(format "call ~a" func)))
+  `(,(format "call ~a" func)
+    "push rax"))
+
+(define (generate-func-call-with-args func arg-num)
+  (define registers '("r9" "r8" "rcx" "rdx" "rsi" "rdi"))
+  `(,@(map (lambda (reg)
+             (list "pop rax"
+                   (format "mov ~a, rax" reg)))
+           (take-right registers arg-num))
+    ,@(generate-func-call func)))
 
 (define (generate-left-value node)
   (unless (node-local-variable? node)
@@ -773,7 +809,11 @@
                (add-between (map generate-rec (node-block-bodys node)) "pop rax")]
               [(node-func-call? node)
                (define func (node-func-call-func node))
-               (generate-func-call func)]
+               (define args (node-func-call-args node))
+               [cond [(null? args) (generate-func-call func)]
+                     [else
+                      `(,@(map generate-rec args)
+                        ,@(generate-func-call-with-args func (length args)))]]]
               [(node-operator? node)
                `(,@(generate-rec (node-operator-left node))
                  ,@(generate-rec (node-operator-right node))

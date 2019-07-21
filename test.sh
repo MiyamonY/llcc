@@ -4,7 +4,8 @@ try() {
   input="$2"
 
   racket llcc.rkt "$input" > tmp.s
-  gcc -o tmp tmp.s
+  gcc -c test.c
+  gcc -o tmp tmp.s test.o
   ./tmp
   actual="$?"
 
@@ -55,6 +56,9 @@ try 20 'y = 0; for(x=0; x < 10; x = x + 1) y = y+2; return y;'
 try 6 '{a=2; b=3; c = a*b; return c;}'
 try 3 'a=0; if(a){return a*1;} else {return 3;}'
 try 10 'x=10; y = 0; while(x>0){y = y+1; x = x -1;} return y;'
-try 256 'y=1; for(x=0; x < 8; x = x+1) { y = 2*y;} return y;'
+try 128 'y=1; for(x=0; x < 7; x = x+1) {y = 2*y;} return y;'
+try 15 'return 5+test0();'
+try 64 'x = test1(5); return x*x;'
+try 21 'return test6(1,2,3,4,5,6);'
 
 echo OK
