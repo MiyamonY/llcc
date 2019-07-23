@@ -262,6 +262,9 @@
 (struct node-operator node (op left right)
   #:transparent)
 
+(struct variable (name offset)
+  #:transparent)
+
 (define (node-sub left right)
   (node-operator "-" left right ))
 
@@ -315,7 +318,7 @@
                       (format "wrong token: ~a" (object-name token-pred)))]))
 
 (define (parse input)
-  (define variable-offsets (make-hash))
+  (define variables (make-hash))
 
   (define new-offset
     ((lambda ()
@@ -349,9 +352,10 @@
                          (values (node-func-call name args) (cdr remaining2))])]
                  [else
                   (define offset
-                    (or (hash-ref variable-offsets name #f)
+                    (if (hash-has-key? variables name)
+                        (variable-offset (hash-ref variables name))
                         (let ([offset (new-offset)])
-                          (hash-set! variable-offsets name offset)
+                          (hash-set! variables name (variable name offset))
                           offset)))
                   (values (node-local-variable name offset) (cdr tokens))])]
           [(token-lparen? (first tokens))
