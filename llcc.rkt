@@ -531,7 +531,7 @@
              (cons stmt0 (program-rec remaining))]))
     (program-rec tokens))
 
-  (program (tokenize input)))
+  (values (program (tokenize input)) variables))
 
 (module+ test
   (define (node-add left right)
@@ -543,17 +543,23 @@
   (define (node-div left right)
     (node-operator "/" left right))
 
-  (test-equal? "num" (parse "12;") (list (node-number 12)))
+  (define (parse-node input)
+    (define-values (node _) (parse input))
+    node)
 
-  (test-equal? "identifier" (parse "x;") (list (node-local-variable "x" 8)))
+  (test-equal? "num"
+               (parse-node "12;")
+               (list (node-number 12)))
 
-  (test-equal? "func call without args" (parse "test();")
+  (test-equal? "identifier" (parse-node "x;") (list (node-local-variable "x" 8)))
+
+  (test-equal? "func call without args" (parse-node "test();")
                (list (node-func-call "test" '())))
 
-  (test-equal? "func call with one arg" (parse "test(1);")
+  (test-equal? "func call with one arg" (parse-node "test(1);")
                (list (node-func-call "test" (list (node-number 1)))))
 
-  (test-equal? "func call with max args" (parse "test(1,2,3,4,5,6);")
+  (test-equal? "func call with max args" (parse-node "test(1,2,3,4,5,6);")
                (list (node-func-call "test" (list (node-number 1)
                                                   (node-number 2)
                                                   (node-number 3)
@@ -561,13 +567,13 @@
                                                   (node-number 5)
                                                   (node-number 6)))))
 
-  (test-equal? "parens" (parse "(1+2);") (list (node-add (node-number 1) (node-number 2))))
+  (test-equal? "parens" (parse-node "(1+2);") (list (node-add (node-number 1) (node-number 2))))
 
-  (test-equal? "unary plus" (parse "+1;") (list (node-number 1)))
+  (test-equal? "unary plus" (parse-node "+1;") (list (node-number 1)))
 
-  (test-equal? "unary minus" (parse "-3;") (list (node-sub (node-number 0) (node-number 3))))
+  (test-equal? "unary minus" (parse-node "-3;") (list (node-sub (node-number 0) (node-number 3))))
 
-  (test-equal? "mul muls and divs" (parse "2*3/2*3/2;")
+  (test-equal? "mul muls and divs" (parse-node "2*3/2*3/2;")
                (list
                 (node-div
                  (node-mul
@@ -575,25 +581,25 @@
                    (node-mul
                     (node-number 2) (node-number 3)) (node-number 2)) (node-number 3)) (node-number 2))))
 
-  (test-equal? "relationals" (parse "1<2<=3>=2>1;")
+  (test-equal? "relationals" (parse-node "1<2<=3>=2>1;")
                (list
                 (node-lt (node-number 1)
                          (node-le (node-number 2)
                                   (node-le
                                    (node-lt (node-number 1) (node-number 2)) (node-number 3))))))
 
-  (test-equal? "euqalities" (parse "1==2 != 3;")
+  (test-equal? "euqalities" (parse-node "1==2 != 3;")
                (list (node-neq (node-eq (node-number 1) (node-number 2)) (node-number 3))))
 
-  (test-equal? "assign" (parse "x=y=1;")
+  (test-equal? "assign" (parse-node "x=y=1;")
                (list (node-assign (node-local-variable "x" 8)
                                   (node-assign (node-local-variable "y" 16) (node-number 1)))))
 
-  (test-equal? "return" (parse "return 3;")
+  (test-equal? "return" (parse-node "return 3;")
                (list (node-return (node-number 3))))
 
   (test-equal? "ifs"
-               (parse "if (1 <= 2 ) return 3;if (1 < 2) return 3; else return 4;if(1) 1;")
+               (parse-node "if (1 <= 2 ) return 3;if (1 < 2) return 3; else return 4;if(1) 1;")
                (list
                 (node-if (node-le (node-number 1) (node-number 2))
                          (node-return (node-number 3)) null)
@@ -602,12 +608,12 @@
                 (node-if (node-number 1) (node-number 1) null)))
 
   (test-equal? "whiles"
-               (parse "while (x<3) return 4;")
+               (parse-node "while (x<3) return 4;")
                (list (node-while (node-lt (node-local-variable "x" 8) (node-number 3))
                                  (node-return (node-number 4)))))
 
   (test-equal? "for all"
-               (parse "for (x=0; x < 10; x = x + 1) 2 + 3;")
+               (parse-node "for (x=0; x < 10; x = x + 1) 2 + 3;")
                (list (node-for (node-assign (node-local-variable "x" 8) (node-number 0))
                                (node-lt (node-local-variable "x" 8) (node-number 10))
                                (node-assign (node-local-variable "x" 8)
@@ -617,13 +623,13 @@
                                (node-add (node-number 2) (node-number 3)))))
 
   (test-equal? "for while"
-               (parse "for (;;) 1;")
+               (parse-node "for (;;) 1;")
                (list (node-for null
                                null
                                null
                                (node-number 1))))
   (test-equal? "blocks"
-               (parse "{a=1; b=2; c=a+b;return c;}")
+               (parse-node "{a=1; b=2; c=a+b;return c;}")
                (list (node-block (list
                                   (node-assign (node-local-variable "a" 8) (node-number 1))
                                   (node-assign (node-local-variable "b" 16) (node-number 2))
@@ -649,7 +655,7 @@
       "{1+2; "))
 
   (for-each (lambda (input)
-              (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse input))))
+              (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse-node input))))
             input-for-exn))
 
 (define (generate-error msg)
@@ -659,10 +665,10 @@
 (define (push num)
   `(,(format "push ~a" num)))
 
-(define (reserve-local-variables)
-  '("push rbp"
+(define (reserve-local-variables variables)
+  `("push rbp"
     "mov rbp, rsp"
-    "sub rsp, 208"))
+    ,(format "sub rsp, ~a" (* 8 (hash-count variables)))))
 
 (define (free-local-variables)
   '("mov rsp, rbp"
@@ -748,7 +754,7 @@
     ,(format "sub rax, ~a" (node-local-variable-offset node))
     "push rax"))
 
-(define (generate nodes)
+(define (generate nodes variables)
   (define gen-label
     ((lambda ()
        (define label-num 0)
@@ -841,7 +847,7 @@
      ,(string-join
        (flatten
         (list
-         (reserve-local-variables)
+         (reserve-local-variables variables)
          (map
           (lambda (node) (append (generate-rec node) (pop-result)))
           nodes)
@@ -852,7 +858,8 @@
    "\n"))
 
 (define (compile expr)
-  (generate (parse expr)))
+  (define-values (node variables) (parse expr))
+  (generate node variables))
 
 (module+ main
   (define expr
