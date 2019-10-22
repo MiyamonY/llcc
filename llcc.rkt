@@ -259,6 +259,9 @@
 (struct node-func-call node (func args)
   #:transparent)
 
+(struct node-func-declaration node (func args stmts)
+  #:transparent)
+
 (struct node-operator node (op left right)
   #:transparent)
 
@@ -522,16 +525,32 @@
 
     (values node remaining))
 
-  ;; program = (stmt)*
-  (define (program tokens)
-    (define (program-rec tokens)
-      (cond [(null? tokens) '()]
-            [else
-             (define-values (stmt0 remaining) (stmt tokens))
-             (cons stmt0 (program-rec remaining))]))
-    (program-rec tokens))
+  ;; declaration = ("ident" "(" ")" "{" (stmt)* "}")*
+  (define (declaration tokens)
+    (define (declaration-rec tokens)
+      (cond [(null? tokens) (values '() '())]
+            [(token-identifier? (first tokens))
+             (define name (token-identifier-name (first tokens)))
+             (token-must-be token-lparen? (cdr tokens) input)
+             (token-must-be token-rparen? (cddr tokens) input)
+             (token-must-be token-lcurly-brace? (cdddr tokens) input)
+             (define-values (stmt0 remaining0) (stmt (drop tokens 4)))
+             (token-must-be token-rcurly-brace? remaining0 input)
+             (define-values (decls remaining1) (declaration-rec (cdr remaining0)))
+             (values (cons (node-func-declaration name '() stmt0) decls) remaining1)]
+            [else (parse-error input (token-char-at (first tokens)) "unexpected token")]))
 
-  (values (program (tokenize input)) variables))
+    (declaration-rec tokens))
+
+  ;; program = decraration
+  (define (program tokens)
+    (define-values (decl remaining) (declaration tokens))
+    (when (not (null? remaining))
+      (parse-error ))
+    decl)
+
+  (define tokens (tokenize input))
+  (values (program tokens) variables))
 
 (module+ test
   (define (node-add left right)
@@ -548,10 +567,12 @@
     node)
 
   (test-equal? "num"
-               (parse-node "12;")
-               (list (node-number 12)))
+               (parse-node "main( ) {return 12;}")
+               (list (node-func-declaration "main" '() (node-return (node-number 12)))))
 
-  (test-equal? "identifier" (parse-node "x;") (list (node-local-variable "x" 8)))
+  (test-equal? "identifier" (parse-node "main() {x;}")
+               (list
+                (node-func-declaration "main" '() (node-local-variable "x" 8))))
 
   (test-equal? "func call without args" (parse-node "test();")
                (list (node-func-call "test" '())))
