@@ -658,101 +658,120 @@
               (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse-node input))))
             input-for-exn))
 
+(struct instruction ()
+  #:transparent)
+
+(struct instruction-command instruction (command)
+  #:transparent)
+
+(struct instruction-label instruction (label)
+  #:transparent)
+
 (define (generate-error msg)
   (raise-user-error
    'generate-error "~a\n" msg))
 
 (define (push num)
-  `(,(format "push ~a" num)))
+  (list (instruction-command (format "push ~a" num))))
 
 (define (reserve-local-variables variables)
-  `("push rbp"
-    "mov rbp, rsp"
-    ,(format "sub rsp, ~a" (* 8 (hash-count variables)))))
+  (list (instruction-command "push rbp")
+        (instruction-command "mov rbp, rsp")
+        (instruction-command (format "sub rsp, ~a" (* 8 (hash-count variables))))))
 
 (define (free-local-variables)
-  '("mov rsp, rbp"
-    "pop rbp"))
+  (list (instruction-command "mov rsp, rbp")
+        (instruction-command "pop rbp")))
 
 (define (push-result)
-  '("push rax"))
+  (list (instruction-command "push rax")))
 
 (define (pop-result)
-  '("pop rax"))
+  (list (instruction-command "pop rax")))
 
 (define (pop-operands)
-  '("pop rdi"
-    "pop rax"))
+  (list (instruction-command "pop rdi")
+        (instruction-command "pop rax")))
 
 (define (return)
-  '("ret"))
+  (list (instruction-command "ret")))
 
 (define (generate-add)
-  '("add rax, rdi"))
+  (list (instruction-command "add rax, rdi")))
 
 (define (generate-sub)
-  '("sub rax, rdi"))
+  (list (instruction-command "sub rax, rdi")))
 
 (define (generate-mul)
-  '("imul rax, rdi"))
+  (list (instruction-command "imul rax, rdi")))
 
 (define (generate-div)
-  '("cqo"
-    "div rdi"))
+  (list (instruction-command "cqo")
+        (instruction-command "div rdi")))
 
 (define (generate-eq)
-  '("cmp rax, rdi"
-    "sete al"
-    "movzb rax, al"))
+  (list (instruction-command "cmp rax, rdi")
+        (instruction-command "sete al")
+        (instruction-command "movzb rax, al")))
 
 (define (generate-neq)
-  '("cmp rax, rdi"
-    "setne al"
-    "movzb rax, al"))
+  (list (instruction-command "cmp rax, rdi")
+        (instruction-command "setne al")
+        (instruction-command "movzb rax, al")))
 
 (define (generate-lt)
-  '("cmp rax, rdi"
-    "setl al"
-    "movzb rax, al"))
+  (list (instruction-command "cmp rax, rdi")
+        (instruction-command "setl al")
+        (instruction-command "movzb rax, al")))
 
 (define (generate-le)
-  '("cmp rax, rdi"
-    "setle al"
-    "movzb rax, al"))
+  (list (instruction-command "cmp rax, rdi")
+        (instruction-command "setle al")
+        (instruction-command "movzb rax, al")))
+
+(define (generate-equal-0)
+  (list (instruction-command  "pop rax")
+        (instruction-command  "cmp rax, 0")))
+
+(define (generate-jump-if-equal label)
+  (list (instruction-command (format "je ~a" label))))
+
+(define (generate-jump label)
+  (list (instruction-command (format "jmp ~a" label))))
 
 (define (generate-load-from-local-variable)
-  '("pop rax"
-    "mov rax, [rax]"
-    "push rax"))
+  (list (instruction-command "pop rax")
+        (instruction-command "mov rax, [rax]")
+        (instruction-command "push rax")))
 
 (define (generate-store-to-local-variable)
-  '("pop rdi"
-    "pop rax"
-    "mov [rax],rdi"
-    "push rdi"))
+  (list (instruction-command "pop rdi")
+        (instruction-command "pop rax")
+        (instruction-command "mov [rax],rdi")
+        (instruction-command "push rdi")))
 
 (define (generate-label label)
-  `(,(format "~a:" label)))
+  (list (instruction-label (format "~a:" label))))
 
 (define (generate-func-call func)
-  `(,(format "call ~a" func)
-    "push rax"))
+  (list (instruction-command (format "call ~a" func))
+        (instruction-command "push rax")))
 
 (define (generate-func-call-with-args func arg-num)
   (define registers '("r9" "r8" "rcx" "rdx" "rsi" "rdi"))
-  `(,@(map (lambda (reg)
-             (list "pop rax"
-                   (format "mov ~a, rax" reg)))
-           (take-right registers arg-num))
-    ,@(generate-func-call func)))
+  (append (append-map (lambda (reg)
+                        (list (instruction-command "pop rax")
+                              (instruction-command (format "mov ~a, rax" reg))))
+                      (take-right registers arg-num))
+          (generate-func-call func)))
 
 (define (generate-left-value node)
   (unless (node-local-variable? node)
     (generate-error (format "left value must be local variable: ~a" (object-name node))))
 
-  `("mov rax, rbp"
-    ,(format "sub rax, ~a" (node-local-variable-offset node))
-    "push rax"))
+  (list (instruction-command "mov rax, rbp")
+        (instruction-command (format "sub rax, ~a" (node-local-variable-offset node)))
+        (instruction-command "push rax")))
 
 (define (generate nodes variables)
   (define gen-label
@@ -764,97 +783,103 @@
 
   (define (generate-rec node)
     (if (null? node)
-        ""
+        '()
         (cond [(node-number? node) (push (node-number-val node))]
               [(node-local-variable? node)
-               `(,@(generate-left-value node)
-                 ,@(generate-load-from-local-variable))]
+               (append (generate-left-value node)
+                       (generate-load-from-local-variable))]
               [(node-assign? node)
-               `(,@(generate-left-value (node-assign-left node))
-                 ,@(generate-rec (node-assign-right node))
-                 ,@(generate-store-to-local-variable))]
+               (append (generate-left-value (node-assign-left node))
+                       (generate-rec (node-assign-right node))
+                       (generate-store-to-local-variable))]
               [(node-return? node)
-               `(,@(generate-rec (node-return-expr node))
-                 ,@(pop-result)
-                 ,@(free-local-variables)
-                 ,@(return))]
+               (append (generate-rec (node-return-expr node))
+                       (pop-result)
+                       (free-local-variables)
+                       (return))]
               [(node-if? node)
                (define label-else (gen-label))
                (define label-end (gen-label))
-               `(,@(generate-rec (node-if-conditional node))
-                 ,@(list "pop rax"
-                         "cmp rax, 0"
-                         (format "je ~a" label-else))
-                 ,@(generate-rec (node-if-true-clause node))
-                 ,(format "jmp ~a" label-end)
-                 ,(format "~a:" label-else)
-                 ,@(generate-rec (node-if-false-clause node))
-                 ,(format "~a:" label-end))]
+               (append (generate-rec (node-if-conditional node))
+                       (generate-equal-0)
+                       (generate-jump-if-equal label-else)
+                       (generate-rec (node-if-true-clause node))
+                       (generate-jump label-end)
+                       (generate-label label-else)
+                       (generate-rec (node-if-false-clause node))
+                       (generate-label label-end))]
               [(node-while? node)
                (define label-start (gen-label))
                (define label-end (gen-label))
-               `(,(format "~a:" label-start)
-                 ,@(generate-rec (node-while-conditional node))
-                 ,@(list "pop rax"
-                         "cmp rax, 0"
-                         (format "je ~a" label-end))
-                 ,@(generate-rec (node-while-body node))
-                 ,(format "jmp ~a" label-start)
-                 ,(format "~a:" label-end))]
+               (append (generate-label label-start)
+                       (generate-rec (node-while-conditional node))
+                       (generate-equal-0)
+                       (generate-jump-if-equal label-end)
+                       (generate-rec (node-while-body node))
+                       (generate-jump label-start)
+                       (generate-label label-end))]
               [(node-for? node)
                (define label-start (gen-label))
                (define label-end (gen-label))
-               `(,@(generate-rec (node-for-init node))
-                 ,@(pop-result)
-                 ,@(generate-label label-start)
-                 ,@(generate-rec (node-for-conditional node))
-                 ,@(list "pop rax"
-                         "cmp rax, 0"
-                         (format "je ~a" label-end))
-                 ,@(generate-rec (node-for-body node))
-                 ,@(generate-rec (node-for-next node))
-                 ,(format "jmp ~a" label-start)
-                 ,@(generate-label label-end))]
+               (append (generate-rec (node-for-init node))
+                       (pop-result)
+                       (generate-label label-start)
+                       (generate-rec (node-for-conditional node))
+                       (generate-equal-0)
+                       (generate-jump-if-equal label-end)
+                       (generate-rec (node-for-body node))
+                       (generate-rec (node-for-next node))
+                       (generate-jump label-start)
+                       (generate-label label-end))]
               [(node-block? node)
-               (add-between (map generate-rec (node-block-bodys node)) "pop rax")]
+               (append-map generate-rec (node-block-bodys node))]
               [(node-func-call? node)
                (define func (node-func-call-func node))
                (define args (node-func-call-args node))
-               [cond [(null? args) (generate-func-call func)]
+               (cond [(null? args) (generate-func-call func)]
                      [else
-                      `(,@(map generate-rec args)
-                        ,@(generate-func-call-with-args func (length args)))]]]
+                      (append (append-map generate-rec args)
+                              (generate-func-call-with-args func (length args)))])]
               [(node-operator? node)
-               `(,@(generate-rec (node-operator-left node))
-                 ,@(generate-rec (node-operator-right node))
-                 ,@(pop-operands)
-                 ,@(cond [(node-add? node) (generate-add)]
-                         [(node-sub? node) (generate-sub)]
-                         [(node-mul? node) (generate-mul)]
-                         [(node-div? node) (generate-div)]
-                         [(node-eq? node) (generate-eq)]
-                         [(node-neq? node) (generate-neq)]
-                         [(node-lt? node) (generate-lt)]
-                         [(node-le? node) (generate-le)]
-                         [else
-                          (generate-error (format "unexpected operator: ~a" (node-operator-op node)))])
-                 ,@(push-result))])))
+               (append (generate-rec (node-operator-left node))
+                       (generate-rec (node-operator-right node))
+                       (pop-operands)
+                       (cond [(node-add? node) (generate-add)]
+                             [(node-sub? node) (generate-sub)]
+                             [(node-mul? node) (generate-mul)]
+                             [(node-div? node) (generate-div)]
+                             [(node-eq? node) (generate-eq)]
+                             [(node-neq? node) (generate-neq)]
+                             [(node-lt? node) (generate-lt)]
+                             [(node-le? node) (generate-le)]
+                             [else
+                              (generate-error (format "unexpected operator: ~a" (node-operator-op node)))])
+                       (push-result))])))
+
+  (define (format-body body)
+    (map (lambda (instr)
+           (cond
+             [(instruction-label? instr)
+              (format "\t~a" (instruction-label-label instr))]
+             [(instruction-command? instr)
+              (instruction-command-command instr)]
+             [else
+              (generate-error (format "undefined type: ~a@~a" instr body))]))
+         body))
+
+  (define body
+    (append
+     (reserve-local-variables variables)
+     (append-map
+      (lambda (node) (append (generate-rec node) (pop-result))) nodes)
+     (free-local-variables)
+     (return)))
 
   (string-join
    `(".intel_syntax noprefix"
      ".global main"
      "main:"
-     ,(string-join
-       (flatten
-        (list
-         (reserve-local-variables variables)
-         (map
-          (lambda (node) (append (generate-rec node) (pop-result)))
-          nodes)
-         (free-local-variables)
-         (return)))
-       "\n\t"
-       #:before-first "\t"))
+     ,@(format-body body))
    "\n"))
 
 (define (compile expr)
