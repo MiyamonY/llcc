@@ -541,7 +541,7 @@
              (set! variables (make-hash))
              (define-values (stmts remaining0) (stmt* (drop tokens 4)))
              (token-must-be token-rcurly-brace? remaining0 input)
-             (values (node-func-declaration name '() stmts variables) (rest remaining0))]
+             (values (node-func-declaration name '() (node-block stmts) variables) (rest remaining0))]
             [else (parse-error input (token-char-at (first tokens)) "unexpected token")]))
     (define decl* (star decl (compose1 not token-identifier?)))
 
@@ -572,7 +572,7 @@
     node)
 
   (define (node-main body variables)
-    (node-func-declaration "main" '() body variables))
+    (node-func-declaration "main" '() (node-block body) variables))
 
   (test-equal? "num"
                (parse-node "main( ) {return 12;}")
@@ -714,19 +714,20 @@
                 (node-func-declaration
                  "a"
                  '()
-                 (list (node-return (node-operator "+" (node-number 1) (node-number 2))))
+                 (node-block (list (node-return (node-operator "+" (node-number 1) (node-number 2)))))
                  (make-hash))
                 (node-func-declaration
                  "b"
                  '()
-                 (list (node-operator "*" (node-number 3) (node-number 4)))
+                 (node-block (list (node-operator "*" (node-number 3) (node-number 4))))
                  (make-hash))
                 (node-func-declaration
                  "main"
                  '()
-                 (list
-                  (node-return
-                   (node-operator "+" (node-func-call "a" '()) (node-func-call "b" '()))))
+                 (node-block
+                  (list
+                   (node-return
+                    (node-operator "+" (node-func-call "a" '()) (node-func-call "b" '())))))
                  (make-hash))))
 
   (define input-for-exn
@@ -955,7 +956,7 @@
               [(node-func-declaration? node)
                (define name (node-func-declaration-name node))
                (define args (node-func-declaration-args node))
-               (define body (node-func-declaration-body node))
+               (define body (node-block-bodys (node-func-declaration-body node)))
                (define variables (node-func-declaration-variables node))
                (append (generate-label name)
                        (reserve-local-variables variables)
