@@ -452,6 +452,16 @@
   (define (expr tokens)
     (assign tokens))
 
+  (define (star a terminate?)
+    (lambda (tokens)
+      (define (rec nodes tokens)
+        (cond [(null? tokens) (values (reverse nodes) tokens)]
+              [(terminate? (first tokens)) (values (reverse nodes) tokens)]
+              [else
+               (define-values (node remaining) (a tokens))
+               (rec (cons node nodes) remaining)]))
+      (rec '() tokens)))
+
   ;; stmt = expr ";"
   ;;      | "return" expr ";"
   ;;      | "if" "(" expr ")" stmt ("else" stmt)?
@@ -507,17 +517,10 @@
              (define-values (body remaining3) (stmt (rest remaining2)))
              (values (node-for init conditional next body) remaining3)]
             [(token-lcurly-brace? (first tokens))
-             (define (blocks-rec stmts tokens)
-               (cond [(null? tokens)
-                      (parse-error input (string-length input) "block ends unexpctedly")]
-                     [(token-rcurly-brace? (first tokens))
-                      (values (reverse stmts) (rest tokens))]
-                     [else
-                      (define-values (stmt0 remaining) (stmt tokens))
-                      (blocks-rec (cons stmt0 stmts) remaining)]))
-
-             (define-values (stmts remaining0) (blocks-rec '() (rest tokens)))
-             (values (node-block stmts) remaining0)]
+             (define stmt* (star stmt token-rcurly-brace?))
+             (define-values (stmts remaining) (stmt* (rest tokens)))
+             (token-must-be token-rcurly-brace? remaining input)
+             (values (node-block stmts) (rest remaining))]
             [else
              (define-values (expr0 remaining) (expr tokens))
              (token-must-be token-semicolon? remaining input)
@@ -525,32 +528,24 @@
 
     (values node remaining))
 
-  (define (star a terminate?)
-    (lambda (tokens)
-      (define (rec nodes tokens)
-        (cond [(null? tokens) (values (reverse nodes) tokens)]
-              [(terminate? (first tokens)) (values (reverse nodes) tokens)]
-              [else
-               (define-values (node remaining) (a tokens))
-               (rec (cons node nodes) remaining)]))
-      (rec '() tokens)))
-
   ;; declaration = ("ident" "(" ")" "{" (stmt)* "}")*
   (define (declaration tokens)
     (define (decl tokens)
       (cond [(null? tokens) (values '() '())]
             [(token-identifier? (first tokens))
+             (define stmt* (star stmt token-rcurly-brace?))
              (define name (token-identifier-name (first tokens)))
              (token-must-be token-lparen? (rest tokens) input)
              (token-must-be token-rparen? (drop tokens 2) input)
              (token-must-be token-lcurly-brace? (drop tokens 3) input)
              (set! variables (make-hash))
-             (define-values (stmts remaining0) ((star stmt token-rcurly-brace?) (drop tokens 4)))
+             (define-values (stmts remaining0) (stmt* (drop tokens 4)))
              (token-must-be token-rcurly-brace? remaining0 input)
              (values (node-func-declaration name '() stmts variables) (rest remaining0))]
             [else (parse-error input (token-char-at (first tokens)) "unexpected token")]))
+    (define decl* (star decl (compose1 not token-identifier?)))
 
-    ((star decl (compose1 not token-identifier?)) tokens))
+    (decl* tokens))
 
   ;; program = decraration
   (define (program tokens)
