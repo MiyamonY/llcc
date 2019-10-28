@@ -57,7 +57,7 @@ try 6 'main(){{a=2; b=3; c = a*b; return c;}}'
 try 3 'main(){a=0; if(a){return a*1;} else {return 3;}}'
 try 10 'main(){x=10; y = 0; while(x>0){y = y+1; x = x -1;} return y;}'
 try 128 'main(){y=1; for(x=0; x < 7; x = x+1) {y = 2*y;} return y;}'
-try 15 'main(){return 5+test0();}'
+try 15 'test0(){return 10;} test() { 3+4; } main(){return 5+test0();}'
 try 64 'main(){x = test1(5); return x*x;}'
 try 21 'main(){return test6(1,2,3,4,5,6);}'
 
