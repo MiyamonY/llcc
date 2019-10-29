@@ -540,46 +540,43 @@
                (rec (cons node nodes) remaining)]))
       (rec '() tokens)))
 
-  ;; declaration = (ident (" ( ident ("," indent)* )? ")" "{" (stmt)* "}")*
+  ;; declaration = (ident (" ( ident ("," indent)* )? ")" "{" (stmt)* "}")
   (define (declaration tokens)
-    (define (decl tokens)
-      (cond [(null? tokens) (values '() '())]
-            [(token-identifier? (first tokens))
-             (define name (token-identifier-name (first tokens)))
-             (define (arg* tokens)
-               (define (rec args tokens)
-                 (cond [(token-comma? (first tokens))
-                        (token-must-be token-identifier? (rest tokens) input)
-                        (define name (token-identifier-name (cadr tokens)))
-                        (rec (cons (assign-variable name) args) (drop tokens 2))]
-                       [else
-                        (values (reverse args) tokens)]))
-               (cond [(token-identifier? (first tokens))
-                      (define name (token-identifier-name (first tokens)))
-                      (rec (list (assign-variable name)) (drop tokens 1))]
+    (cond [(null? tokens) (values '() '())]
+          [(token-identifier? (first tokens))
+           (define name (token-identifier-name (first tokens)))
+           (define (arg* tokens)
+             (define (rec args tokens)
+               (cond [(token-comma? (first tokens))
+                      (token-must-be token-identifier? (rest tokens) input)
+                      (define name (token-identifier-name (cadr tokens)))
+                      (rec (cons (assign-variable name) args) (drop tokens 2))]
                      [else
-                      (values '() tokens)]))
-             (reset-env)
-             (token-must-be token-lparen? (rest tokens) input)
-             (define-values (args remaining0) (arg* (drop tokens 2)))
-             (token-must-be token-rparen? remaining0 input)
-             (token-must-be token-lcurly-brace? (drop remaining0 1) input)
-             (define-values (stmts remaining1) ((star stmt token-rcurly-brace?) (drop remaining0 2)))
-             (token-must-be token-rcurly-brace? remaining1 input)
-             (values (node-func-declaration name args stmts variables) (rest remaining1))]
-            [else (parse-error input (token-char-at (first tokens)) "unexpected token")]))
+                      (values (reverse args) tokens)]))
+             (cond [(token-identifier? (first tokens))
+                    (define name (token-identifier-name (first tokens)))
+                    (rec (list (assign-variable name)) (drop tokens 1))]
+                   [else
+                    (values '() tokens)]))
+           (reset-env)
+           (token-must-be token-lparen? (rest tokens) input)
+           (define-values (args remaining0) (arg* (drop tokens 2)))
+           (token-must-be token-rparen? remaining0 input)
+           (token-must-be token-lcurly-brace? (drop remaining0 1) input)
+           (define-values (stmts remaining1) ((star stmt token-rcurly-brace?) (drop remaining0 2)))
+           (token-must-be token-rcurly-brace? remaining1 input)
+           (values (node-func-declaration name args stmts variables) (rest remaining1))]
+          [else (parse-error input (token-char-at (first tokens)) "unexpected token")]))
 
-    ((star decl (compose1 not token-identifier?)) tokens))
-
-  ;; program = decraration
+  ;; program = declaration*
   (define (program tokens)
-    (define-values (decl remaining) (declaration tokens))
-    (when (not (null? remaining))
-      (parse-error input (token-char-at (first tokens)) "There exists unconsumed tokens"))
-    decl)
+    (define declaration* (star declaration (compose1 not token-identifier?)))
+    (declaration* tokens))
 
-  (define tokens (tokenize input))
-  (values (program tokens) variables))
+  (define-values (nodes remaining) (program (tokenize input)))
+  (when (not (null? remaining))
+    (parse-error input (token-char-at (first remaining)) "There exists unconsumed tokens"))
+  (values nodes variables))
 
 (module+ test
   (define (node-add left right)
