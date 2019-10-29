@@ -453,7 +453,7 @@
 
     (call-with-values (lambda () (equality tokens)) assign-aux))
 
-  ;; expr = assign*
+  ;; expr = assign
   (define (expr tokens)
     (assign tokens))
 
