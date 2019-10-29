@@ -59,7 +59,9 @@ try 128 'main(){y=1; for(x=0; x < 7; x = x+1) {y = 2*y;} return y;}'
 try 11 'test(){x=3; return x*x;} test0(){y = 3; 2*y;} main(){return 5+test0();}'
 try 64 'test1(x) { return x+3; } main(){x = test1(5); return x*x;}'
 try 20 'test2(x,y) {a=x+y; return a*a;} test3(a,b,c){ x=a+b*c; return x - 3;} main(){return test2(1,2) + test3(2, 3,4);}'
-try 24 'test4(a,b,c,d){x = a*b + c *d; return x;} test5(x,y,z,w,v){v = x*z*v-y*w; return v;} main(){return test4(2,3,4,5) + test5(3,2,1,4,2);}'
+try 24 'test4(a,b,c,d){x = a*b + c *d; return x;}
+    test5(x,y,z,w,v){v = x*z*v-y*w; return v;}
+    main(){return test4(2,3,4,5) + test5(3,2,1,4,2);}'
 try 21 'test6(a,b,c,d,e,f){return a+b+c+d+e+f;} main(){return test6(1,2,3,4,5,6);}'
 try 89 'fib(n){if(n==0){return 1;} else if(n==1){return 1;} else {return fib(n-1) + fib(n-2);}} main(){return fib(10);}'
 echo OK

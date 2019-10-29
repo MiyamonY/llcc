@@ -157,7 +157,7 @@
 (define (tokenize expr)
   (define (tokenize-rec lst char-at)
     (cond [(not (peek lst)) '()]
-          [(equal? (peek lst) #\space)
+          [(member (peek lst) '(#\space #\tab #\vtab #\page #\return #\newline))
            (tokenize-rec (rest lst) (add1 char-at))]
           [(member (peek lst) '(#\+ #\- #\* #\/))
            (cons (token-operator char-at (string (peek lst)))
