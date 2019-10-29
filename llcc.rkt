@@ -566,7 +566,7 @@
   (define-values (nodes remaining) (program (tokenize input)))
   (when (not (null? remaining))
     (parse-error input (token-char-at (first remaining)) "There exists unconsumed tokens"))
-  (values nodes variables))
+  nodes)
 
 (module+ test
   (define (node-add left right)
@@ -578,35 +578,31 @@
   (define (node-div left right)
     (node-operator "/" left right))
 
-  (define (parse-node input)
-    (define-values (node _) (parse input))
-    node)
-
   (define (node-main body variables)
     (node-func-declaration "main" '() body variables))
 
   (test-equal? "num"
-               (parse-node "main( ) {return 12;}")
+               (parse "main( ) {return 12;}")
                (list
                 (node-main (list (node-return (node-number 12)))
                            (make-hash))))
 
-  (test-equal? "identifier" (parse-node "main() {x;}")
+  (test-equal? "identifier" (parse "main() {x;}")
                (list
                 (node-main (list (node-local-variable "x" 8))
                            (make-hash `(("x" . ,(variable "x" 8)))))))
 
-  (test-equal? "func call without args" (parse-node "main(){test();}")
+  (test-equal? "func call without args" (parse "main(){test();}")
                (list
                 (node-main (list (node-func-call "test" '()))
                            (make-hash))))
 
-  (test-equal? "func call with one arg" (parse-node "main(){test(1);}")
+  (test-equal? "func call with one arg" (parse "main(){test(1);}")
                (list
                 (node-main (list (node-func-call "test" (list (node-number 1))))
                            (make-hash))))
 
-  (test-equal? "func call with max args" (parse-node "main(){test(1,2,3,4,5,6);}")
+  (test-equal? "func call with max args" (parse "main(){test(1,2,3,4,5,6);}")
                (list
                 (node-main
                  (list (node-func-call "test" (list (node-number 1)
@@ -617,19 +613,19 @@
                                                     (node-number 6))))
                  (make-hash))))
 
-  (test-equal? "parens" (parse-node "main(){(1+2);}")
+  (test-equal? "parens" (parse "main(){(1+2);}")
                (list (node-main (list (node-add (node-number 1) (node-number 2)))
                                 (make-hash))))
 
-  (test-equal? "unary plus" (parse-node "main(){+1;}")
+  (test-equal? "unary plus" (parse "main(){+1;}")
                (list (node-main (list (node-number 1))
                                 (make-hash))))
 
-  (test-equal? "unary minus" (parse-node "main(){-3;}")
+  (test-equal? "unary minus" (parse "main(){-3;}")
                (list (node-main (list (node-sub (node-number 0) (node-number 3)))
                                 (make-hash))))
 
-  (test-equal? "mul muls and divs" (parse-node "main(){2*3/2*3/2;}")
+  (test-equal? "mul muls and divs" (parse "main(){2*3/2*3/2;}")
                (list (node-main
                       (list
                        (node-div
@@ -640,7 +636,7 @@
                           (node-number 2)) (node-number 3)) (node-number 2)))
                       (make-hash))))
 
-  (test-equal? "relationals" (parse-node "main(){1<2<=3>=2>1;}")
+  (test-equal? "relationals" (parse "main(){1<2<=3>=2>1;}")
                (list (node-main
                       (list
                        (node-lt (node-number 1)
@@ -649,24 +645,24 @@
                                           (node-lt (node-number 1) (node-number 2)) (node-number 3)))))
                       (make-hash))))
 
-  (test-equal? "euqalities" (parse-node "main(){1==2 != 3;}")
+  (test-equal? "euqalities" (parse "main(){1==2 != 3;}")
                (list (node-main (list (node-neq (node-eq (node-number 1) (node-number 2)) (node-number 3)))
                                 (make-hash))))
 
-  (test-equal? "assign" (parse-node "main(){x=y=1;}")
+  (test-equal? "assign" (parse "main(){x=y=1;}")
                (list (node-main
                       (list (node-assign (node-local-variable "x" 8)
                                          (node-assign (node-local-variable "y" 16) (node-number 1))))
                       (make-hash `(("x" . ,(variable "x" 8)) ("y" . ,(variable "y" 16)))))))
 
   (test-equal? "return"
-               (parse-node "main(){return 3;}")
+               (parse "main(){return 3;}")
                (list (node-main
                       (list (node-return (node-number 3)))
                       (make-hash))))
 
   (test-equal? "ifs"
-               (parse-node "main(){if (1 <= 2 ) return 3;if (1 < 2) return 3; else return 4;if(1) 1;}")
+               (parse "main(){if (1 <= 2 ) return 3;if (1 < 2) return 3; else return 4;if(1) 1;}")
                (list (node-main
                       (list
                        (node-if (node-le (node-number 1) (node-number 2))
@@ -677,14 +673,14 @@
                       (make-hash))))
 
   (test-equal? "whiles"
-               (parse-node "main(){while (x<3) return 4;}")
+               (parse "main(){while (x<3) return 4;}")
                (list (node-main
                       (list (node-while (node-lt (node-local-variable "x" 8) (node-number 3))
                                         (node-return (node-number 4))))
                       (make-hash `(("x" . ,(variable "x" 8)))))))
 
   (test-equal? "for all"
-               (parse-node "main(){for (x=0; x < 10; x = x + 1) 2 + 3;}")
+               (parse "main(){for (x=0; x < 10; x = x + 1) 2 + 3;}")
                (list (node-main
                       (list (node-for (node-assign (node-local-variable "x" 8) (node-number 0))
                                       (node-lt (node-local-variable "x" 8) (node-number 10))
@@ -696,7 +692,7 @@
                       (make-hash `(("x" . ,(variable "x" 8)))))))
 
   (test-equal? "for while"
-               (parse-node "main(){for (;;) 1;}")
+               (parse "main(){for (;;) 1;}")
                (list (node-main
                       (list
                        (node-for null
@@ -706,7 +702,7 @@
                       (make-hash))))
 
   (test-equal? "blocks"
-               (parse-node "main(){{a=1; b=2; c=a+b;return c;}}")
+               (parse "main(){{a=1; b=2; c=a+b;return c;}}")
                (list (node-main
                       (list
                        (node-block (list
@@ -720,7 +716,7 @@
                        `(("a" . ,(variable "a" 8)) ("b" . ,(variable "b" 16)) ("c" . ,(variable "c" 24)))))))
 
   (test-equal? "function declarations"
-               (parse-node "a(x,y){z = x + y; return z+3;} b(y){return 3*y;} main(){return a()+b();}")
+               (parse "a(x,y){z = x + y; return z+3;} b(y){return 3*y;} main(){return a()+b();}")
                (list
                 (node-func-declaration
                  "a"
@@ -776,7 +772,7 @@
       "12"))
 
   (for-each (lambda (input)
-              (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse-node input))))
+              (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse input))))
             input-for-exn))
 
 (struct instruction ()
@@ -904,7 +900,7 @@
         (instruction-command (format "sub rax, ~a" (node-local-variable-offset node)))
         (instruction-command "push rax")))
 
-(define (generate nodes variables)
+(define (generate nodes)
   (define gen-label
     ((lambda ()
        (define label-num 0)
@@ -1021,8 +1017,7 @@
    "\n"))
 
 (define (compile expr)
-  (define-values (node variables) (parse expr))
-  (generate node variables))
+  (generate (parse expr)))
 
 (module+ main
   (define expr
