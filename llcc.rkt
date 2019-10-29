@@ -322,13 +322,24 @@
 
 (define (parse input)
   (define variables (make-hash))
+  (define offset 0)
 
-  (define new-offset
-    ((lambda ()
-       (define offset 0)
-       (lambda ()
-         (set! offset (+ offset 8))
-         offset))))
+  (define (new-offset)
+    (set! offset (+ offset 8))
+    offset)
+
+  (define (reset-env)
+    (set! variables (make-hash))
+    (set! offset 0))
+
+  (define (assign-variable name)
+    (define offset
+      (if (hash-has-key? variables name)
+          (variable-offset (hash-ref variables name))
+          (let ([offset (new-offset)])
+            (hash-set! variables name (variable name offset))
+            offset)))
+    (node-local-variable name offset))
 
   ;; term = num | ident ("(" (expr ("," expr)*) ? ")")? | "(" expr ")""
   (define (term tokens)
@@ -354,13 +365,7 @@
                          (token-must-be token-rparen? remaining2 input)
                          (values (node-func-call name args) (cdr remaining2))])]
                  [else
-                  (define offset
-                    (if (hash-has-key? variables name)
-                        (variable-offset (hash-ref variables name))
-                        (let ([offset (new-offset)])
-                          (hash-set! variables name (variable name offset))
-                          offset)))
-                  (values (node-local-variable name offset) (cdr tokens))])]
+                  (values (assign-variable name) (cdr tokens))])]
           [(token-lparen? (first tokens))
            (define-values (expr0 remaining) (expr (rest tokens)))
            (token-must-be token-rparen? remaining input)
@@ -535,19 +540,33 @@
                (rec (cons node nodes) remaining)]))
       (rec '() tokens)))
 
-  ;; declaration = ("ident" "(" ")" "{" (stmt)* "}")*
+  ;; declaration = (ident (" ( ident ("," indent)* )? ")" "{" (stmt)* "}")*
   (define (declaration tokens)
     (define (decl tokens)
       (cond [(null? tokens) (values '() '())]
             [(token-identifier? (first tokens))
              (define name (token-identifier-name (first tokens)))
+             (define (arg* tokens)
+               (define (rec args tokens)
+                 (cond [(token-comma? (first tokens))
+                        (token-must-be token-identifier? (rest tokens) input)
+                        (define name (token-identifier-name (cadr tokens)))
+                        (rec (cons (assign-variable name) args) (drop tokens 2))]
+                       [else
+                        (values (reverse args) tokens)]))
+               (cond [(token-identifier? (first tokens))
+                      (define name (token-identifier-name (first tokens)))
+                      (rec (list (assign-variable name)) (drop tokens 1))]
+                     [else
+                      (values '() tokens)]))
+             (reset-env)
              (token-must-be token-lparen? (rest tokens) input)
-             (token-must-be token-rparen? (drop tokens 2) input)
-             (token-must-be token-lcurly-brace? (drop tokens 3) input)
-             (set! variables (make-hash))
-             (define-values (stmts remaining0) ((star stmt token-rcurly-brace?) (drop tokens 4)))
-             (token-must-be token-rcurly-brace? remaining0 input)
-             (values (node-func-declaration name '() stmts variables) (rest remaining0))]
+             (define-values (args remaining0) (arg* (drop tokens 2)))
+             (token-must-be token-rparen? remaining0 input)
+             (token-must-be token-lcurly-brace? (drop remaining0 1) input)
+             (define-values (stmts remaining1) ((star stmt token-rcurly-brace?) (drop remaining0 2)))
+             (token-must-be token-rcurly-brace? remaining1 input)
+             (values (node-func-declaration name args stmts variables) (rest remaining1))]
             [else (parse-error input (token-char-at (first tokens)) "unexpected token")]))
 
     ((star decl (compose1 not token-identifier?)) tokens))
@@ -714,18 +733,28 @@
                        `(("a" . ,(variable "a" 8)) ("b" . ,(variable "b" 16)) ("c" . ,(variable "c" 24)))))))
 
   (test-equal? "function declarations"
-               (parse-node "a(){return 1+2;} b(){3*4;} main(){return a()+b();}")
+               (parse-node "a(x,y){z = x + y; return z+3;} b(y){return 3*y;} main(){return a()+b();}")
                (list
                 (node-func-declaration
                  "a"
-                 '()
-                 (list (node-return (node-operator "+" (node-number 1) (node-number 2))))
-                 (make-hash))
+                 (list (node-local-variable "x" 8) (node-local-variable "y" 16))
+                 (list
+                  (node-assign
+                   (node-local-variable "z" 24)
+                   (node-operator
+                    "+"
+                    (node-local-variable "x" 8)
+                    (node-local-variable "y" 16)))
+                  (node-return
+                   (node-operator "+" (node-local-variable "z" 24) (node-number 3))))
+                 (make-hash `(("x" . ,(variable "x" 8)) ("y" . ,(variable "y" 16)) ("z" . ,(variable "z" 24))) ))
                 (node-func-declaration
                  "b"
-                 '()
-                 (list (node-operator "*" (node-number 3) (node-number 4)))
-                 (make-hash))
+                 (list (node-local-variable "y" 8))
+                 (list
+                  (node-return
+                   (node-operator "*" (node-number 3) (node-local-variable "y" 8))))
+                 (make-hash `(("y" . ,(variable "y" 8)))))
                 (node-func-declaration
                  "main"
                  '()
@@ -754,6 +783,8 @@
       "main(){"
       "main){}"
       "main({}"
+      "main(x y){4+3;}"
+      "main(x,){2+3;}"
       "(){}"))
 
   (for-each (lambda (input)
@@ -780,6 +811,16 @@
   (list (instruction-command "push rbp")
         (instruction-command "mov rbp, rsp")
         (instruction-command (format "sub rsp, ~a" (* 8 (hash-count variables))))))
+
+(define (transfer-arguments args)
+  (define registers '("r9" "r8" "rcx" "rdx" "rsi" "rdi"))
+  (append-map
+   (lambda (arg reg)
+     (list (instruction-command "mov rax, rbp")
+           (instruction-command (format "sub rax, ~a" (node-local-variable-offset arg)))
+           (instruction-command (format "mov [rax], ~a" reg))))
+   (reverse args)
+   (take-right registers (length args))))
 
 (define (free-local-variables)
   (list (instruction-command "mov rsp, rbp")
@@ -964,6 +1005,7 @@
                (define variables (node-func-declaration-variables node))
                (append (generate-label name)
                        (reserve-local-variables variables)
+                       (transfer-arguments args)
                        (append-map generate-rec body)
                        (pop-result)
                        (free-local-variables)
