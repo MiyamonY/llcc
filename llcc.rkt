@@ -157,7 +157,7 @@
 (define (tokenize expr)
   (define (tokenize-rec lst char-at)
     (cond [(not (peek lst)) '()]
-          [(equal? (peek lst) #\space)
+          [(member (peek lst) '(#\space #\tab #\vtab #\page #\return #\newline))
            (tokenize-rec (rest lst) (add1 char-at))]
           [(member (peek lst) '(#\+ #\- #\* #\/))
            (cons (token-operator char-at (string (peek lst)))
@@ -322,13 +322,24 @@
 
 (define (parse input)
   (define variables (make-hash))
+  (define offset 0)
 
-  (define new-offset
-    ((lambda ()
-       (define offset 0)
-       (lambda ()
-         (set! offset (+ offset 8))
-         offset))))
+  (define (new-offset)
+    (set! offset (+ offset 8))
+    offset)
+
+  (define (reset-env)
+    (set! variables (make-hash))
+    (set! offset 0))
+
+  (define (assign-variable name)
+    (define offset
+      (if (hash-has-key? variables name)
+          (variable-offset (hash-ref variables name))
+          (let ([offset (new-offset)])
+            (hash-set! variables name (variable name offset))
+            offset)))
+    (node-local-variable name offset))
 
   ;; term = num | ident ("(" (expr ("," expr)*) ? ")")? | "(" expr ")""
   (define (term tokens)
@@ -354,13 +365,7 @@
                          (token-must-be token-rparen? remaining2 input)
                          (values (node-func-call name args) (cdr remaining2))])]
                  [else
-                  (define offset
-                    (if (hash-has-key? variables name)
-                        (variable-offset (hash-ref variables name))
-                        (let ([offset (new-offset)])
-                          (hash-set! variables name (variable name offset))
-                          offset)))
-                  (values (node-local-variable name offset) (cdr tokens))])]
+                  (values (assign-variable name) (cdr tokens))])]
           [(token-lparen? (first tokens))
            (define-values (expr0 remaining) (expr (rest tokens)))
            (token-must-be token-rparen? remaining input)
@@ -448,7 +453,7 @@
 
     (call-with-values (lambda () (equality tokens)) assign-aux))
 
-  ;; expr = assign*
+  ;; expr = assign
   (define (expr tokens)
     (assign tokens))
 
@@ -469,93 +474,99 @@
   ;;      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
   ;;      | "{" stmt* "}"
   (define (stmt tokens)
-    (define-values (node remaining)
-      (cond [(empty? tokens)
-             (parse-error input (string-length input) "stmt is empty")]
-            [(token-return? (first tokens))
-             (define-values (expr0 remaining) (expr (rest tokens)))
-             (token-must-be token-semicolon? remaining input)
-             (values (node-return expr0) (rest remaining))]
-            [(token-if? (first tokens))
-             (token-must-be token-lparen? (rest tokens) input)
-             (define-values (conditional remaining0) (expr (rest (rest tokens))))
-             (token-must-be token-rparen? remaining0 input)
-             (define-values (true-clause remaining1) (stmt (rest remaining0)))
-             (cond [(null? remaining1)
-                    (values (node-if conditional true-clause null) remaining1)]
-                   [(token-else? (first remaining1))
-                    (define-values (false-clause remaining2) (stmt (rest remaining1)))
-                    (values (node-if conditional true-clause false-clause)  remaining2)]
-                   [else
-                    (values (node-if conditional true-clause null) remaining1)])]
-            [(token-while? (first tokens))
-             (token-must-be token-lparen? (rest tokens) input)
-             (define-values (conditional remaining) (expr (rest (rest tokens))))
-             (token-must-be token-rparen? remaining input)
-             (define-values (body remaining0) (stmt (rest remaining)))
-             (values (node-while conditional body) remaining0)]
-            [(token-for? (first tokens))
-             (token-must-be token-lparen? (rest tokens) input)
-             (define-values (init remaining0)
-               (if (token-semicolon? (caddr tokens))
-                   (values null (cddr tokens))
-                   (expr (cddr tokens))))
-             (token-must-be token-semicolon? remaining0 input)
+    (cond [(empty? tokens)
+           (parse-error input (string-length input) "stmt is empty")]
+          [(token-return? (first tokens))
+           (define-values (expr0 remaining) (expr (rest tokens)))
+           (token-must-be token-semicolon? remaining input)
+           (values (node-return expr0) (rest remaining))]
+          [(token-if? (first tokens))
+           (token-must-be token-lparen? (rest tokens) input)
+           (define-values (conditional remaining0) (expr (rest (rest tokens))))
+           (token-must-be token-rparen? remaining0 input)
+           (define-values (true-clause remaining1) (stmt (rest remaining0)))
+           (cond [(null? remaining1)
+                  (values (node-if conditional true-clause null) remaining1)]
+                 [(token-else? (first remaining1))
+                  (define-values (false-clause remaining2) (stmt (rest remaining1)))
+                  (values (node-if conditional true-clause false-clause)  remaining2)]
+                 [else
+                  (values (node-if conditional true-clause null) remaining1)])]
+          [(token-while? (first tokens))
+           (token-must-be token-lparen? (rest tokens) input)
+           (define-values (conditional remaining) (expr (rest (rest tokens))))
+           (token-must-be token-rparen? remaining input)
+           (define-values (body remaining0) (stmt (rest remaining)))
+           (values (node-while conditional body) remaining0)]
+          [(token-for? (first tokens))
+           (token-must-be token-lparen? (rest tokens) input)
+           (define-values (init remaining0)
+             (if (token-semicolon? (caddr tokens))
+                 (values null (cddr tokens))
+                 (expr (cddr tokens))))
+           (token-must-be token-semicolon? remaining0 input)
 
-             (define-values (conditional remaining1)
-               (if (token-semicolon? (cadr remaining0))
-                   (values null (rest remaining0))
-                   (expr (rest remaining0))))
-             (token-must-be token-semicolon? remaining1 input)
+           (define-values (conditional remaining1)
+             (if (token-semicolon? (cadr remaining0))
+                 (values null (rest remaining0))
+                 (expr (rest remaining0))))
+           (token-must-be token-semicolon? remaining1 input)
 
-             (define-values (next remaining2)
-               (if (token-rparen? (cadr remaining1))
-                   (values null (rest remaining1))
-                   (expr (rest remaining1))))
-             (token-must-be token-rparen? remaining2 input)
+           (define-values (next remaining2)
+             (if (token-rparen? (cadr remaining1))
+                 (values null (rest remaining1))
+                 (expr (rest remaining1))))
+           (token-must-be token-rparen? remaining2 input)
 
-             (define-values (body remaining3) (stmt (rest remaining2)))
-             (values (node-for init conditional next body) remaining3)]
-            [(token-lcurly-brace? (first tokens))
-             (define stmt* (star stmt token-rcurly-brace?))
-             (define-values (stmts remaining) (stmt* (rest tokens)))
-             (token-must-be token-rcurly-brace? remaining input)
-             (values (node-block stmts) (rest remaining))]
-            [else
-             (define-values (expr0 remaining) (expr tokens))
-             (token-must-be token-semicolon? remaining input)
-             (values expr0 (rest remaining))]))
+           (define-values (body remaining3) (stmt (rest remaining2)))
+           (values (node-for init conditional next body) remaining3)]
+          [(token-lcurly-brace? (first tokens))
+           (define stmt* (star stmt token-rcurly-brace?))
+           (define-values (stmts remaining) (stmt* (rest tokens)))
+           (token-must-be token-rcurly-brace? remaining input)
+           (values (node-block stmts) (rest remaining))]
+          [else
+           (define-values (expr0 remaining) (expr tokens))
+           (token-must-be token-semicolon? remaining input)
+           (values expr0 (rest remaining))]))
 
-    (values node remaining))
-
-  ;; declaration = ("ident" "(" ")" "{" (stmt)* "}")*
+  ;; declaration = (ident (" ( ident ("," indent)* )? ")" "{" (stmt)* "}")
   (define (declaration tokens)
-    (define (decl tokens)
-      (cond [(null? tokens) (values '() '())]
-            [(token-identifier? (first tokens))
-             (define stmt* (star stmt token-rcurly-brace?))
-             (define name (token-identifier-name (first tokens)))
-             (token-must-be token-lparen? (rest tokens) input)
-             (token-must-be token-rparen? (drop tokens 2) input)
-             (token-must-be token-lcurly-brace? (drop tokens 3) input)
-             (set! variables (make-hash))
-             (define-values (stmts remaining0) (stmt* (drop tokens 4)))
-             (token-must-be token-rcurly-brace? remaining0 input)
-             (values (node-func-declaration name '() (node-block stmts) variables) (rest remaining0))]
-            [else (parse-error input (token-char-at (first tokens)) "unexpected token")]))
-    (define decl* (star decl (compose1 not token-identifier?)))
+    (cond [(null? tokens) (values '() '())]
+          [(token-identifier? (first tokens))
+           (define name (token-identifier-name (first tokens)))
+           (define (arg* tokens)
+             (define (rec args tokens)
+               (cond [(token-comma? (first tokens))
+                      (token-must-be token-identifier? (rest tokens) input)
+                      (define name (token-identifier-name (cadr tokens)))
+                      (rec (cons (assign-variable name) args) (drop tokens 2))]
+                     [else
+                      (values (reverse args) tokens)]))
+             (cond [(token-identifier? (first tokens))
+                    (define name (token-identifier-name (first tokens)))
+                    (rec (list (assign-variable name)) (drop tokens 1))]
+                   [else
+                    (values '() tokens)]))
+           (reset-env)
+           (token-must-be token-lparen? (rest tokens) input)
+           (define-values (args remaining0) (arg* (drop tokens 2)))
+           (token-must-be token-rparen? remaining0 input)
+           (token-must-be token-lcurly-brace? (drop remaining0 1) input)
+           (define-values (stmts remaining1) ((star stmt token-rcurly-brace?) (drop remaining0 2)))
+           (token-must-be token-rcurly-brace? remaining1 input)
+           (values (node-func-declaration name args (node-block stmts) variables) (rest remaining1))]
+          [else (values '() tokens)]))
 
-    (decl* tokens))
-
-  ;; program = decraration
+  ;; program = declaration*
   (define (program tokens)
-    (define-values (decl remaining) (declaration tokens))
-    (when (not (null? remaining))
-      (parse-error input (token-char-at (first tokens)) "There exists unconsumed tokens"))
-    decl)
+    (define declaration* (star declaration (compose1 not token-identifier?)))
+    (declaration* tokens))
 
-  (define tokens (tokenize input))
-  (values (program tokens) variables))
+  (define-values (nodes remaining) (program (tokenize input)))
+  (when (not (null? remaining))
+    (parse-error input (token-char-at (first remaining)) "There exists unconsumed tokens"))
+  nodes)
 
 (module+ test
   (define (node-add left right)
@@ -567,35 +578,31 @@
   (define (node-div left right)
     (node-operator "/" left right))
 
-  (define (parse-node input)
-    (define-values (node _) (parse input))
-    node)
-
   (define (node-main body variables)
     (node-func-declaration "main" '() (node-block body) variables))
 
   (test-equal? "num"
-               (parse-node "main( ) {return 12;}")
+               (parse "main( ) {return 12;}")
                (list
                 (node-main (list (node-return (node-number 12)))
                            (make-hash))))
 
-  (test-equal? "identifier" (parse-node "main() {x;}")
+  (test-equal? "identifier" (parse "main() {x;}")
                (list
                 (node-main (list (node-local-variable "x" 8))
                            (make-hash `(("x" . ,(variable "x" 8)))))))
 
-  (test-equal? "func call without args" (parse-node "main(){test();}")
+  (test-equal? "func call without args" (parse "main(){test();}")
                (list
                 (node-main (list (node-func-call "test" '()))
                            (make-hash))))
 
-  (test-equal? "func call with one arg" (parse-node "main(){test(1);}")
+  (test-equal? "func call with one arg" (parse "main(){test(1);}")
                (list
                 (node-main (list (node-func-call "test" (list (node-number 1))))
                            (make-hash))))
 
-  (test-equal? "func call with max args" (parse-node "main(){test(1,2,3,4,5,6);}")
+  (test-equal? "func call with max args" (parse "main(){test(1,2,3,4,5,6);}")
                (list
                 (node-main
                  (list (node-func-call "test" (list (node-number 1)
@@ -606,19 +613,19 @@
                                                     (node-number 6))))
                  (make-hash))))
 
-  (test-equal? "parens" (parse-node "main(){(1+2);}")
+  (test-equal? "parens" (parse "main(){(1+2);}")
                (list (node-main (list (node-add (node-number 1) (node-number 2)))
                                 (make-hash))))
 
-  (test-equal? "unary plus" (parse-node "main(){+1;}")
+  (test-equal? "unary plus" (parse "main(){+1;}")
                (list (node-main (list (node-number 1))
                                 (make-hash))))
 
-  (test-equal? "unary minus" (parse-node "main(){-3;}")
+  (test-equal? "unary minus" (parse "main(){-3;}")
                (list (node-main (list (node-sub (node-number 0) (node-number 3)))
                                 (make-hash))))
 
-  (test-equal? "mul muls and divs" (parse-node "main(){2*3/2*3/2;}")
+  (test-equal? "mul muls and divs" (parse "main(){2*3/2*3/2;}")
                (list (node-main
                       (list
                        (node-div
@@ -629,7 +636,7 @@
                           (node-number 2)) (node-number 3)) (node-number 2)))
                       (make-hash))))
 
-  (test-equal? "relationals" (parse-node "main(){1<2<=3>=2>1;}")
+  (test-equal? "relationals" (parse "main(){1<2<=3>=2>1;}")
                (list (node-main
                       (list
                        (node-lt (node-number 1)
@@ -638,24 +645,24 @@
                                           (node-lt (node-number 1) (node-number 2)) (node-number 3)))))
                       (make-hash))))
 
-  (test-equal? "euqalities" (parse-node "main(){1==2 != 3;}")
+  (test-equal? "euqalities" (parse "main(){1==2 != 3;}")
                (list (node-main (list (node-neq (node-eq (node-number 1) (node-number 2)) (node-number 3)))
                                 (make-hash))))
 
-  (test-equal? "assign" (parse-node "main(){x=y=1;}")
+  (test-equal? "assign" (parse "main(){x=y=1;}")
                (list (node-main
                       (list (node-assign (node-local-variable "x" 8)
                                          (node-assign (node-local-variable "y" 16) (node-number 1))))
                       (make-hash `(("x" . ,(variable "x" 8)) ("y" . ,(variable "y" 16)))))))
 
   (test-equal? "return"
-               (parse-node "main(){return 3;}")
+               (parse "main(){return 3;}")
                (list (node-main
                       (list (node-return (node-number 3)))
                       (make-hash))))
 
   (test-equal? "ifs"
-               (parse-node "main(){if (1 <= 2 ) return 3;if (1 < 2) return 3; else return 4;if(1) 1;}")
+               (parse "main(){if (1 <= 2 ) return 3;if (1 < 2) return 3; else return 4;if(1) 1;}")
                (list (node-main
                       (list
                        (node-if (node-le (node-number 1) (node-number 2))
@@ -666,14 +673,14 @@
                       (make-hash))))
 
   (test-equal? "whiles"
-               (parse-node "main(){while (x<3) return 4;}")
+               (parse "main(){while (x<3) return 4;}")
                (list (node-main
                       (list (node-while (node-lt (node-local-variable "x" 8) (node-number 3))
                                         (node-return (node-number 4))))
                       (make-hash `(("x" . ,(variable "x" 8)))))))
 
   (test-equal? "for all"
-               (parse-node "main(){for (x=0; x < 10; x = x + 1) 2 + 3;}")
+               (parse "main(){for (x=0; x < 10; x = x + 1) 2 + 3;}")
                (list (node-main
                       (list (node-for (node-assign (node-local-variable "x" 8) (node-number 0))
                                       (node-lt (node-local-variable "x" 8) (node-number 10))
@@ -685,7 +692,7 @@
                       (make-hash `(("x" . ,(variable "x" 8)))))))
 
   (test-equal? "for while"
-               (parse-node "main(){for (;;) 1;}")
+               (parse "main(){for (;;) 1;}")
                (list (node-main
                       (list
                        (node-for null
@@ -695,7 +702,7 @@
                       (make-hash))))
 
   (test-equal? "blocks"
-               (parse-node "main(){{a=1; b=2; c=a+b;return c;}}")
+               (parse "main(){{a=1; b=2; c=a+b;return c;}}")
                (list (node-main
                       (list
                        (node-block (list
@@ -709,18 +716,30 @@
                        `(("a" . ,(variable "a" 8)) ("b" . ,(variable "b" 16)) ("c" . ,(variable "c" 24)))))))
 
   (test-equal? "function declarations"
-               (parse-node "a(){return 1+2;} b(){3*4;} main(){return a()+b();}")
+               (parse "a(x,y){z = x + y; return z+3;} b(y){return 3*y;} main(){return a()+b();}")
                (list
                 (node-func-declaration
                  "a"
-                 '()
-                 (node-block (list (node-return (node-operator "+" (node-number 1) (node-number 2)))))
-                 (make-hash))
+                 (list (node-local-variable "x" 8) (node-local-variable "y" 16))
+                 (node-block
+                  (list
+                   (node-assign
+                    (node-local-variable "z" 24)
+                    (node-operator
+                     "+"
+                     (node-local-variable "x" 8)
+                     (node-local-variable "y" 16)))
+                   (node-return
+                    (node-operator "+" (node-local-variable "z" 24) (node-number 3)))))
+                 (make-hash `(("x" . ,(variable "x" 8)) ("y" . ,(variable "y" 16)) ("z" . ,(variable "z" 24))) ))
                 (node-func-declaration
                  "b"
-                 '()
-                 (node-block (list (node-operator "*" (node-number 3) (node-number 4))))
-                 (make-hash))
+                 (list (node-local-variable "y" 8))
+                 (node-block
+                  (list
+                   (node-return
+                    (node-operator "*" (node-number 3) (node-local-variable "y" 8)))))
+                 (make-hash `(("y" . ,(variable "y" 8)))))
                 (node-func-declaration
                  "main"
                  '()
@@ -750,10 +769,13 @@
       "main(){"
       "main){}"
       "main({}"
-      "(){}"))
+      "main(x y){4+3;}"
+      "main(x,){2+3;}"
+      "(){}"
+      "12"))
 
   (for-each (lambda (input)
-              (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse-node input))))
+              (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse input))))
             input-for-exn))
 
 (struct instruction ()
@@ -776,6 +798,16 @@
   (list (instruction-command "push rbp")
         (instruction-command "mov rbp, rsp")
         (instruction-command (format "sub rsp, ~a" (* 8 (hash-count variables))))))
+
+(define (transfer-arguments args)
+  (define registers '("r9" "r8" "rcx" "rdx" "rsi" "rdi"))
+  (append-map
+   (lambda (arg reg)
+     (list (instruction-command "mov rax, rbp")
+           (instruction-command (format "sub rax, ~a" (node-local-variable-offset arg)))
+           (instruction-command (format "mov [rax], ~a" reg))))
+   (reverse args)
+   (take-right registers (length args))))
 
 (define (free-local-variables)
   (list (instruction-command "mov rsp, rbp")
@@ -871,7 +903,7 @@
         (instruction-command (format "sub rax, ~a" (node-local-variable-offset node)))
         (instruction-command "push rax")))
 
-(define (generate nodes variables)
+(define (generate nodes)
   (define gen-label
     ((lambda ()
        (define label-num 0)
@@ -960,6 +992,7 @@
                (define variables (node-func-declaration-variables node))
                (append (generate-label name)
                        (reserve-local-variables variables)
+                       (transfer-arguments args)
                        (append-map generate-rec body)
                        (pop-result)
                        (free-local-variables)
@@ -987,8 +1020,7 @@
    "\n"))
 
 (define (compile expr)
-  (define-values (node variables) (parse expr))
-  (generate node variables))
+  (generate (parse expr)))
 
 (module+ main
   (define expr
