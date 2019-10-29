@@ -474,64 +474,61 @@
   ;;      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
   ;;      | "{" stmt* "}"
   (define (stmt tokens)
-    (define-values (node remaining)
-      (cond [(empty? tokens)
-             (parse-error input (string-length input) "stmt is empty")]
-            [(token-return? (first tokens))
-             (define-values (expr0 remaining) (expr (rest tokens)))
-             (token-must-be token-semicolon? remaining input)
-             (values (node-return expr0) (rest remaining))]
-            [(token-if? (first tokens))
-             (token-must-be token-lparen? (rest tokens) input)
-             (define-values (conditional remaining0) (expr (rest (rest tokens))))
-             (token-must-be token-rparen? remaining0 input)
-             (define-values (true-clause remaining1) (stmt (rest remaining0)))
-             (cond [(null? remaining1)
-                    (values (node-if conditional true-clause null) remaining1)]
-                   [(token-else? (first remaining1))
-                    (define-values (false-clause remaining2) (stmt (rest remaining1)))
-                    (values (node-if conditional true-clause false-clause)  remaining2)]
-                   [else
-                    (values (node-if conditional true-clause null) remaining1)])]
-            [(token-while? (first tokens))
-             (token-must-be token-lparen? (rest tokens) input)
-             (define-values (conditional remaining) (expr (rest (rest tokens))))
-             (token-must-be token-rparen? remaining input)
-             (define-values (body remaining0) (stmt (rest remaining)))
-             (values (node-while conditional body) remaining0)]
-            [(token-for? (first tokens))
-             (token-must-be token-lparen? (rest tokens) input)
-             (define-values (init remaining0)
-               (if (token-semicolon? (caddr tokens))
-                   (values null (cddr tokens))
-                   (expr (cddr tokens))))
-             (token-must-be token-semicolon? remaining0 input)
+    (cond [(empty? tokens)
+           (parse-error input (string-length input) "stmt is empty")]
+          [(token-return? (first tokens))
+           (define-values (expr0 remaining) (expr (rest tokens)))
+           (token-must-be token-semicolon? remaining input)
+           (values (node-return expr0) (rest remaining))]
+          [(token-if? (first tokens))
+           (token-must-be token-lparen? (rest tokens) input)
+           (define-values (conditional remaining0) (expr (rest (rest tokens))))
+           (token-must-be token-rparen? remaining0 input)
+           (define-values (true-clause remaining1) (stmt (rest remaining0)))
+           (cond [(null? remaining1)
+                  (values (node-if conditional true-clause null) remaining1)]
+                 [(token-else? (first remaining1))
+                  (define-values (false-clause remaining2) (stmt (rest remaining1)))
+                  (values (node-if conditional true-clause false-clause)  remaining2)]
+                 [else
+                  (values (node-if conditional true-clause null) remaining1)])]
+          [(token-while? (first tokens))
+           (token-must-be token-lparen? (rest tokens) input)
+           (define-values (conditional remaining) (expr (rest (rest tokens))))
+           (token-must-be token-rparen? remaining input)
+           (define-values (body remaining0) (stmt (rest remaining)))
+           (values (node-while conditional body) remaining0)]
+          [(token-for? (first tokens))
+           (token-must-be token-lparen? (rest tokens) input)
+           (define-values (init remaining0)
+             (if (token-semicolon? (caddr tokens))
+                 (values null (cddr tokens))
+                 (expr (cddr tokens))))
+           (token-must-be token-semicolon? remaining0 input)
 
-             (define-values (conditional remaining1)
-               (if (token-semicolon? (cadr remaining0))
-                   (values null (rest remaining0))
-                   (expr (rest remaining0))))
-             (token-must-be token-semicolon? remaining1 input)
+           (define-values (conditional remaining1)
+             (if (token-semicolon? (cadr remaining0))
+                 (values null (rest remaining0))
+                 (expr (rest remaining0))))
+           (token-must-be token-semicolon? remaining1 input)
 
-             (define-values (next remaining2)
-               (if (token-rparen? (cadr remaining1))
-                   (values null (rest remaining1))
-                   (expr (rest remaining1))))
-             (token-must-be token-rparen? remaining2 input)
+           (define-values (next remaining2)
+             (if (token-rparen? (cadr remaining1))
+                 (values null (rest remaining1))
+                 (expr (rest remaining1))))
+           (token-must-be token-rparen? remaining2 input)
 
-             (define-values (body remaining3) (stmt (rest remaining2)))
-             (values (node-for init conditional next body) remaining3)]
-            [(token-lcurly-brace? (first tokens))
-             (define stmt* (star stmt token-rcurly-brace?))
-             (define-values (stmts remaining) (stmt* (rest tokens)))
-             (token-must-be token-rcurly-brace? remaining input)
-             (values (node-block stmts) (rest remaining))]
-            [else
-             (define-values (expr0 remaining) (expr tokens))
-             (token-must-be token-semicolon? remaining input)
-             (values expr0 (rest remaining))]))
-
-    (values node remaining))
+           (define-values (body remaining3) (stmt (rest remaining2)))
+           (values (node-for init conditional next body) remaining3)]
+          [(token-lcurly-brace? (first tokens))
+           (define stmt* (star stmt token-rcurly-brace?))
+           (define-values (stmts remaining) (stmt* (rest tokens)))
+           (token-must-be token-rcurly-brace? remaining input)
+           (values (node-block stmts) (rest remaining))]
+          [else
+           (define-values (expr0 remaining) (expr tokens))
+           (token-must-be token-semicolon? remaining input)
+           (values expr0 (rest remaining))]))
 
   ;; declaration = (ident (" ( ident ("," indent)* )? ")" "{" (stmt)* "}")
   (define (declaration tokens)
