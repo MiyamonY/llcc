@@ -86,6 +86,9 @@
 (define (token-assign char-at)
   (token-operator char-at "="))
 
+(define (token-addr char-at)
+  (token-operator char-at "&"))
+
 (define (token-plus? token)
   (and (token-operator? token) (equal? (token-operator-op token) "+")))
 
@@ -124,6 +127,9 @@
 
 (define (token-assign? token)
   (and (token-operator? token) (equal? (token-operator-op token) "=")))
+
+(define (token-addr? token)
+  (and (token-operator? token) (equal? (token-operator-op token) "&")))
 
 (define (take-while lst f)
   (cond
@@ -199,6 +205,8 @@
            (cons (token-lcurly-brace char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(equal? (peek lst) #\})
            (cons (token-rcurly-brace char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+          [(equal? (peek lst) #\&)
+           (cons (token-addr char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(char-numeric? (peek lst))
            (define-values (taken remaining) (take-while lst char-numeric?))
            (cons (token-number char-at (string->number (list->string taken)))
@@ -265,11 +273,14 @@
 (struct node-operator node (op left right)
   #:transparent)
 
+(struct node-unary-operator node (op expr)
+  #:transparent)
+
 (struct variable (name offset)
   #:transparent)
 
 (define (node-sub left right)
-  (node-operator "-" left right ))
+  (node-operator "-" left right))
 
 (define (node-eq left right)
   (node-operator "==" left right))
@@ -282,6 +293,9 @@
 
 (define (node-le left right)
   (node-operator "<=" left right))
+
+(define (node-addr node)
+  (node-unary-operator "&" node))
 
 (define (node-add? node)
   (and (node-operator? node) (equal? (node-operator-op node) "+")))
@@ -306,6 +320,9 @@
 
 (define (node-le? node)
   (and (node-operator? node) (equal? (node-operator-op node) "<=")))
+
+(define (node-addr? node)
+  (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "&")))
 
 (define (reverse-compare op)
   (cond [(equal? op ">") "<"]
@@ -373,7 +390,7 @@
           [else
            (parse-error input (token-char-at (first tokens)) "token must be number or ( or identifier")]))
 
-  ;; unary = ("+" | "-")? term
+  ;; unary = ("+" | "-" | "&")? term
   (define (unary tokens)
     (when (null? tokens)
       (parse-error input (string-length input) "expression ends unexpectedly"))
@@ -384,6 +401,9 @@
           [(token-minus? unary-operator)
            (define-values (term0 remaining) (term (cdr tokens)))
            (values (node-sub (node-number 0) term0) remaining)]
+          [(token-addr? unary-operator)
+           (define-values (term0 remaining) (term (cdr tokens)))
+           (values (node-addr term0) remaining)]
           [else (term tokens)]))
 
   ;; mul = unary ("*" unary | "/" unary)*
@@ -555,7 +575,7 @@
            (token-must-be token-lcurly-brace? (drop remaining0 1) input)
            (define-values (stmts remaining1) ((star stmt token-rcurly-brace?) (drop remaining0 2)))
            (token-must-be token-rcurly-brace? remaining1 input)
-           (values (node-func-declaration name args (node-block stmts) variables) (rest remaining1))]
+           (values (node-func-declaration name args stmts variables) (rest remaining1))]
           [else (values '() tokens)]))
 
   ;; program = declaration*
@@ -579,7 +599,7 @@
     (node-operator "/" left right))
 
   (define (node-main body variables)
-    (node-func-declaration "main" '() (node-block body) variables))
+    (node-func-declaration "main" '() body variables))
 
   (test-equal? "num"
                (parse "main( ) {return 12;}")
@@ -620,6 +640,11 @@
   (test-equal? "unary plus" (parse "main(){+1;}")
                (list (node-main (list (node-number 1))
                                 (make-hash))))
+
+  (test-equal? "unary addr" (parse "main(){ &x + &3;}")
+               (list (node-main (list (node-add (node-addr (node-local-variable "x" 8))
+                                                (node-addr (node-number 3))))
+                                (make-hash `(("x" . ,(variable "x" 8)))))))
 
   (test-equal? "unary minus" (parse "main(){-3;}")
                (list (node-main (list (node-sub (node-number 0) (node-number 3)))
@@ -721,32 +746,29 @@
                 (node-func-declaration
                  "a"
                  (list (node-local-variable "x" 8) (node-local-variable "y" 16))
-                 (node-block
-                  (list
-                   (node-assign
-                    (node-local-variable "z" 24)
-                    (node-operator
-                     "+"
-                     (node-local-variable "x" 8)
-                     (node-local-variable "y" 16)))
-                   (node-return
-                    (node-operator "+" (node-local-variable "z" 24) (node-number 3)))))
+                 (list
+                  (node-assign
+                   (node-local-variable "z" 24)
+                   (node-operator
+                    "+"
+                    (node-local-variable "x" 8)
+                    (node-local-variable "y" 16)))
+                  (node-return
+                   (node-operator "+" (node-local-variable "z" 24) (node-number 3))))
                  (make-hash `(("x" . ,(variable "x" 8)) ("y" . ,(variable "y" 16)) ("z" . ,(variable "z" 24))) ))
                 (node-func-declaration
                  "b"
                  (list (node-local-variable "y" 8))
-                 (node-block
-                  (list
-                   (node-return
-                    (node-operator "*" (node-number 3) (node-local-variable "y" 8)))))
+                 (list
+                  (node-return
+                   (node-operator "*" (node-number 3) (node-local-variable "y" 8))))
                  (make-hash `(("y" . ,(variable "y" 8)))))
                 (node-func-declaration
                  "main"
                  '()
-                 (node-block
-                  (list
-                   (node-return
-                    (node-operator "+" (node-func-call "a" '()) (node-func-call "b" '())))))
+                 (list
+                  (node-return
+                   (node-operator "+" (node-func-call "a" '()) (node-func-call "b" '()))))
                  (make-hash))))
 
   (define input-for-exn
@@ -988,7 +1010,7 @@
               [(node-func-declaration? node)
                (define name (node-func-declaration-name node))
                (define args (node-func-declaration-args node))
-               (define body (node-block-bodys (node-func-declaration-body node)))
+               (define body (node-func-declaration-body node))
                (define variables (node-func-declaration-variables node))
                (append (generate-label name)
                        (reserve-local-variables variables)
