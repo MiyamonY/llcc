@@ -245,10 +245,6 @@
   (test-exn "invalid operator "#rx"tokenize-error" (lambda () (tokenize "1 !! 2")))
   (check-exn #rx"tokenize-error" (lambda () (tokenize "~"))))
 
-(define (parse-error expr char-at msg)
-  (raise-user-error
-   'parse-error  "\n~a\n~a^\n~a\n" expr (make-string char-at #\space) msg))
-
 (struct node ()
   #:transparent)
 
@@ -280,6 +276,9 @@
   #:transparent)
 
 (struct node-func-declaration node (name args body variables)
+  #:transparent)
+
+(struct node-variable-declaration node (var)
   #:transparent)
 
 (struct node-operator node (op left right)
@@ -355,6 +354,10 @@
          (parse-error input (token-char-at (first tokens))
                       (format "wrong token: ~a" (object-name token-pred)))]))
 
+(define (parse-error expr char-at msg)
+  (raise-user-error
+   'parse-error  "\n~a\n~a^\n~a\n" expr (make-string char-at #\space) msg))
+
 (define (parse input)
   (define variables (make-hash))
   (define offset 0)
@@ -367,14 +370,17 @@
     (set! variables (make-hash))
     (set! offset 0))
 
+  (define (reference-variable name)
+    (if (hash-has-key? variables name)
+        (variable-offset (hash-ref variables name))
+        #f))
+
   (define (assign-variable name)
-    (define offset
-      (if (hash-has-key? variables name)
-          (variable-offset (hash-ref variables name))
-          (let ([offset (new-offset)])
-            (hash-set! variables name (variable name offset))
-            offset)))
-    (node-local-variable name offset))
+    (if (hash-has-key? variables name)
+        #f
+        (let ([offset (new-offset)])
+          (hash-set! variables name (variable name offset))
+          (node-local-variable name offset))))
 
   ;; term = num | ident ("(" (expr ("," expr)*) ? ")")? | "(" expr ")""
   (define (term tokens)
@@ -400,7 +406,11 @@
                          (token-must-be token-rparen? remaining2 input)
                          (values (node-func-call name args) (cdr remaining2))])]
                  [else
-                  (values (assign-variable name) (cdr tokens))])]
+                  (define offset (reference-variable name))
+                  (when (not offset)
+                    (parse-error input (token-char-at (first tokens))
+                                 (format "variable: ~a is not declared" name)))
+                  (values (node-local-variable name offset) (cdr tokens))])]
           [(token-lparen? (first tokens))
            (define-values (expr0 remaining) (expr (rest tokens)))
            (token-must-be token-rparen? remaining input)
@@ -508,6 +518,7 @@
       (rec '() tokens)))
 
   ;; stmt = expr ";"
+  ;;      | "int" ident ";"
   ;;      | "return" expr ";"
   ;;      | "if" "(" expr ")" stmt ("else" stmt)?
   ;;      | "while" "(" expr ")" stmt
@@ -516,6 +527,15 @@
   (define (stmt tokens)
     (cond [(empty? tokens)
            (parse-error input (string-length input) "stmt is empty")]
+          [(token-int? (first tokens))
+           (token-must-be token-identifier? (rest tokens) input)
+           (token-must-be token-semicolon? (drop tokens 2) input)
+           (define name (token-identifier-name (first (rest tokens))))
+           (define var (assign-variable name))
+           (when (not var)
+             (parse-error input (token-char-at (first (rest tokens)))
+                          (format "variable: ~a is already assigned" name)))
+           (values (node-variable-declaration name) (drop tokens 3))]
           [(token-return? (first tokens))
            (define-values (expr0 remaining) (expr (rest tokens)))
            (token-must-be token-semicolon? remaining input)
@@ -630,9 +650,11 @@
                 (node-main (list (node-return (node-number 12)))
                            (make-hash))))
 
-  (test-equal? "identifier" (parse "int main() {x;}")
+  (test-equal? "identifier" (parse "int main() {int x; x;}")
                (list
-                (node-main (list (node-local-variable "x" 8))
+                (node-main (list
+                            (node-variable-declaration "x")
+                            (node-local-variable "x" 8))
                            (make-hash `(("x" . ,(variable "x" 8)))))))
 
   (test-equal? "func call without args" (parse "int main(){test();}")
@@ -665,19 +687,26 @@
                                 (make-hash))))
 
   (test-equal? "unary minus" (parse "int main(){-3;}")
-               (list (node-main (list (node-sub (node-number 0) (node-number 3)))
-                                (make-hash))))
+               (list (node-main
+                      (list (node-sub (node-number 0) (node-number 3)))
+                      (make-hash))))
 
-  (test-equal? "unary addr" (parse "int main(){ &x + &3;}")
-               (list (node-main (list (node-add (node-addr (node-local-variable "x" 8))
-                                                (node-addr (node-number 3))))
-                                (make-hash `(("x" . ,(variable "x" 8)))))))
+  (test-equal? "unary addr" (parse "int main(){ int x; &x + &3;}")
+               (list (node-main
+                      (list
+                       (node-variable-declaration "x")
+                       (node-add (node-addr (node-local-variable "x" 8))
+                                 (node-addr (node-number 3))))
+                      (make-hash `(("x" . ,(variable "x" 8)))))))
 
-  (test-equal? "unary deref" (parse "int main(){ &*&x + &(3+4);}")
-               (list (node-main (list (node-add (node-addr (node-deref (node-addr (node-local-variable "x" 8))))
-                                                (node-addr (node-add (node-number 3)
-                                                                     (node-number 4)))))
-                                (make-hash `(("x" . ,(variable "x" 8)))))))
+  (test-equal? "unary deref" (parse "int main(){ int x; &*&x + &(3+4);}")
+               (list (node-main
+                      (list
+                       (node-variable-declaration "x")
+                       (node-add (node-addr (node-deref (node-addr (node-local-variable "x" 8))))
+                                 (node-addr (node-add (node-number 3)
+                                                      (node-number 4)))))
+                      (make-hash `(("x" . ,(variable "x" 8)))))))
 
 
   (test-equal? "mul muls and divs" (parse "int main(){2*3/2*3/2;}")
@@ -704,10 +733,13 @@
                (list (node-main (list (node-neq (node-eq (node-number 1) (node-number 2)) (node-number 3)))
                                 (make-hash))))
 
-  (test-equal? "assign" (parse "int main(){x=y=1;}")
+  (test-equal? "assign" (parse "int main(){int x; int y; x=y=1;}")
                (list (node-main
-                      (list (node-assign (node-local-variable "x" 8)
-                                         (node-assign (node-local-variable "y" 16) (node-number 1))))
+                      (list
+                       (node-variable-declaration "x")
+                       (node-variable-declaration "y")
+                       (node-assign (node-local-variable "x" 8)
+                                    (node-assign (node-local-variable "y" 16) (node-number 1))))
                       (make-hash `(("x" . ,(variable "x" 8)) ("y" . ,(variable "y" 16)))))))
 
   (test-equal? "return"
@@ -728,22 +760,26 @@
                       (make-hash))))
 
   (test-equal? "whiles"
-               (parse "int main(){while (x<3) return 4;}")
+               (parse "int main(){int x; while (x<3) return 4;}")
                (list (node-main
-                      (list (node-while (node-lt (node-local-variable "x" 8) (node-number 3))
-                                        (node-return (node-number 4))))
+                      (list
+                       (node-variable-declaration "x")
+                       (node-while (node-lt (node-local-variable "x" 8) (node-number 3))
+                                   (node-return (node-number 4))))
                       (make-hash `(("x" . ,(variable "x" 8)))))))
 
   (test-equal? "for all"
-               (parse "int main(){for (x=0; x < 10; x = x + 1) 2 + 3;}")
+               (parse "int main(){int x; for (x=0; x < 10; x = x + 1) 2 + 3;}")
                (list (node-main
-                      (list (node-for (node-assign (node-local-variable "x" 8) (node-number 0))
-                                      (node-lt (node-local-variable "x" 8) (node-number 10))
-                                      (node-assign (node-local-variable "x" 8)
-                                                   (node-add
-                                                    (node-local-variable "x" 8)
-                                                    (node-number 1)))
-                                      (node-add (node-number 2) (node-number 3))))
+                      (list
+                       (node-variable-declaration "x")
+                       (node-for (node-assign (node-local-variable "x" 8) (node-number 0))
+                                 (node-lt (node-local-variable "x" 8) (node-number 10))
+                                 (node-assign (node-local-variable "x" 8)
+                                              (node-add
+                                               (node-local-variable "x" 8)
+                                               (node-number 1)))
+                                 (node-add (node-number 2) (node-number 3))))
                       (make-hash `(("x" . ,(variable "x" 8)))))))
 
   (test-equal? "for while"
@@ -757,10 +793,13 @@
                       (make-hash))))
 
   (test-equal? "blocks"
-               (parse "int main(){{a=1; b=2; c=a+b;return c;}}")
+               (parse "int main(){int a; {int b; int c; a=1; b=2; c=a+b;return c;}}")
                (list (node-main
                       (list
+                       (node-variable-declaration "a")
                        (node-block (list
+                                    (node-variable-declaration "b")
+                                    (node-variable-declaration "c")
                                     (node-assign (node-local-variable "a" 8) (node-number 1))
                                     (node-assign (node-local-variable "b" 16) (node-number 2))
                                     (node-assign (node-local-variable "c" 24)
@@ -771,13 +810,14 @@
                        `(("a" . ,(variable "a" 8)) ("b" . ,(variable "b" 16)) ("c" . ,(variable "c" 24)))))))
 
   (test-equal? "function declarations"
-               (parse "int a(int x, int y){z = x + y; return z+3;} int b(int y){return 3*y;}
+               (parse "int a(int x, int y){int z; z = x + y; return z+3;} int b(int y){return 3*y;}
 int main(){return a()+b();}")
                (list
                 (node-func-declaration
                  "a"
                  (list (node-local-variable "x" 8) (node-local-variable "y" 16))
                  (list
+                  (node-variable-declaration "z")
                   (node-assign
                    (node-local-variable "z" 24)
                    (node-operator
@@ -817,19 +857,25 @@ int main(){return a()+b();}")
       "int main(){if(1+2); }"
       "int main(){if(1+2}"
       "int main(){3/}"
+      "int main(){int x; x + y;}"
+      "int main(){int ; int x; int y; x + y;}"
+      "int main(){int x; int x; int y; 3;}"
       "int main(){3/-}"
       "int main(){{1+2;}"
       "int main(){"
       "int main){}"
       "int main({}"
-      "int main(x y){4+3;}"
-      "int main(x,){2+3;}"
-      "main(x,y) {2+3;}"
+      "int main(int x int y){4+3;}"
+      "int main(int x,){2+3;}"
+      "main(int x, int y) {2+3;}"
+      "main(int x, y) {2+3;}"
       "(){}"
       "12"))
 
   (for-each (lambda (input)
-              (test-exn "invalid inputs" #rx"parse-error" (lambda () (parse input))))
+              (check-exn #rx"parse-error"
+                         (lambda () (parse input))
+                         (format "No exception raised: ~a" input)))
             input-for-exn))
 
 (struct instruction ()
@@ -1060,7 +1106,8 @@ int main(){return a()+b();}")
                        (append-map generate-rec body)
                        (pop-result)
                        (free-local-variables)
-                       (return))])))
+                       (return))]
+              [(node-variable-declaration? node) '()])))
 
   (define (format-body body)
     (map (lambda (instr)
