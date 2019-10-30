@@ -131,6 +131,9 @@
 (define (token-addr? token)
   (and (token-operator? token) (equal? (token-operator-op token) "&")))
 
+(define (token-deref? token)
+  (token-mul? token))
+
 (define (take-while lst f)
   (cond
     ((null? lst) (values '() '()))
@@ -197,8 +200,7 @@
            (cond [(equal? next #\=)
                   (cons (token-ge char-at) (tokenize-rec (rest (rest lst)) (+ char-at 2)))]
                  [else
-                  (cons (token-gt char-at) (tokenize-rec (rest lst) (add1 char-at)))
-                  ])]
+                  (cons (token-gt char-at) (tokenize-rec (rest lst) (add1 char-at)))])]
           [(equal? (peek lst) #\;)
            (cons (token-semicolon char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(equal? (peek lst) #\{)
@@ -273,7 +275,7 @@
 (struct node-operator node (op left right)
   #:transparent)
 
-(struct node-unary-operator node (op expr)
+(struct node-unary-operator node (op unary)
   #:transparent)
 
 (struct variable (name offset)
@@ -296,6 +298,9 @@
 
 (define (node-addr node)
   (node-unary-operator "&" node))
+
+(define (node-deref node)
+  (node-unary-operator "*" node))
 
 (define (node-add? node)
   (and (node-operator? node) (equal? (node-operator-op node) "+")))
@@ -323,6 +328,9 @@
 
 (define (node-addr? node)
   (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "&")))
+
+(define (node-deref? node)
+  (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "*")))
 
 (define (reverse-compare op)
   (cond [(equal? op ">") "<"]
@@ -390,20 +398,22 @@
           [else
            (parse-error input (token-char-at (first tokens)) "token must be number or ( or identifier")]))
 
-  ;; unary = ("+" | "-" | "&")? term
+  ;; unary = ("+" | "-")? term | ("&" | "*") unary
   (define (unary tokens)
     (when (null? tokens)
       (parse-error input (string-length input) "expression ends unexpectedly"))
 
-    (define unary-operator (car tokens))
-    (cond [(token-plus? unary-operator)
-           (term (cdr tokens))]
+    (define unary-operator (first tokens))
+    (cond [(token-plus? unary-operator) (term (rest tokens))]
           [(token-minus? unary-operator)
-           (define-values (term0 remaining) (term (cdr tokens)))
+           (define-values (term0 remaining) (term (rest tokens)))
            (values (node-sub (node-number 0) term0) remaining)]
           [(token-addr? unary-operator)
-           (define-values (term0 remaining) (term (cdr tokens)))
-           (values (node-addr term0) remaining)]
+           (define-values (unary0 remaining) (unary (rest tokens)))
+           (values (node-addr unary0) remaining)]
+          [(token-deref? unary-operator)
+           (define-values (unary0 remaining) (unary (rest tokens)))
+           (values (node-deref unary0) remaining)]
           [else (term tokens)]))
 
   ;; mul = unary ("*" unary | "/" unary)*
@@ -641,14 +651,21 @@
                (list (node-main (list (node-number 1))
                                 (make-hash))))
 
+  (test-equal? "unary minus" (parse "main(){-3;}")
+               (list (node-main (list (node-sub (node-number 0) (node-number 3)))
+                                (make-hash))))
+
   (test-equal? "unary addr" (parse "main(){ &x + &3;}")
                (list (node-main (list (node-add (node-addr (node-local-variable "x" 8))
                                                 (node-addr (node-number 3))))
                                 (make-hash `(("x" . ,(variable "x" 8)))))))
 
-  (test-equal? "unary minus" (parse "main(){-3;}")
-               (list (node-main (list (node-sub (node-number 0) (node-number 3)))
-                                (make-hash))))
+  (test-equal? "unary deref" (parse "main(){ &*&x + &(3+4);}")
+               (list (node-main (list (node-add (node-addr (node-deref (node-addr (node-local-variable "x" 8))))
+                                                (node-addr (node-add (node-number 3)
+                                                                     (node-number 4)))))
+                                (make-hash `(("x" . ,(variable "x" 8)))))))
+
 
   (test-equal? "mul muls and divs" (parse "main(){2*3/2*3/2;}")
                (list (node-main
@@ -848,6 +865,11 @@
 (define (return)
   (list (instruction-command "ret")))
 
+(define (deref)
+  (list (instruction-command "pop rax")
+        (instruction-command "mov rax, [rax]")
+        (instruction-command "push rax")))
+
 (define (generate-add)
   (list (instruction-command "add rax, rdi")))
 
@@ -1007,6 +1029,11 @@
                              [else
                               (generate-error (format "unexpected operator: ~a" (node-operator-op node)))])
                        (push-result))]
+              [(node-addr? node)
+               (append (generate-left-value (node-unary-operator-unary node)))]
+              [(node-deref? node)
+               (append (generate-rec (node-unary-operator-unary node))
+                       (deref))]
               [(node-func-declaration? node)
                (define name (node-func-declaration-name node))
                (define args (node-func-declaration-args node))
