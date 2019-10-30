@@ -591,33 +591,39 @@
            (token-must-be token-semicolon? remaining input)
            (values expr0 (rest remaining))]))
 
-  ;; declaration = ("int" ident (" ( "int" ident ("," "int" indent)* )? ")" "{" (stmt)* "}")
+  ;; arguments = "int" ident ("," "int" indent)*
+  ;;           | e
+  (define (arguments tokens)
+    (define (cont tokens)
+      (token-must-be token-comma? tokens input)
+      (token-must-be token-int? (rest tokens) input)
+      (token-must-be token-identifier? (drop tokens 2) input)
+      (define name (token-identifier-name (first (drop tokens 2))))
+      (values (assign-variable name) (drop tokens 3)))
+    (define cont* (star cont token-comma?))
+
+    (cond [(token-int? (first tokens))
+           (token-must-be token-identifier? (rest tokens) input)
+           (define name (token-identifier-name (first (rest tokens))))
+           (define arg (assign-variable name))
+           (define-values (args remaining) (cont* (drop tokens 2)))
+           (values (cons arg args) remaining)]
+          [else
+           (values '() tokens)]))
+
+  ;; declaration = "int" ident (" arguments ")" "{" (stmt)* "}"
   (define (declaration tokens)
     (cond [(null? tokens) (values '() '())]
           [(token-int? (first tokens))
+           (define stmt* (star stmt (compose not token-rcurly-brace?)))
+
+           (reset-env)
            (token-must-be token-identifier? (rest tokens) input)
            (define name (token-identifier-name (first (rest tokens))))
-           (define (arg* tokens)
-             (define (rec args tokens)
-               (cond [(token-comma? (first tokens))
-                      (token-must-be token-int? (rest tokens) input)
-                      (token-must-be token-identifier? (drop tokens 2) input)
-                      (define name (token-identifier-name (first (drop tokens 2))))
-                      (rec (cons (assign-variable name) args) (drop tokens 3))]
-                     [else
-                      (values (reverse args) tokens)]))
-             (cond [(token-int? (first tokens))
-                    (token-must-be token-identifier? (rest tokens) input)
-                    (define name (token-identifier-name (first (rest tokens))))
-                    (rec (list (assign-variable name)) (drop tokens 2))]
-                   [else
-                    (values '() tokens)]))
-           (reset-env)
            (token-must-be token-lparen? (drop tokens 2) input)
-           (define-values (args remaining0) (arg* (drop tokens 3)))
+           (define-values (args remaining0) (arguments (drop tokens 3)))
            (token-must-be token-rparen? remaining0 input)
            (token-must-be token-lcurly-brace? (drop remaining0 1) input)
-           (define stmt* (star stmt (compose not token-rcurly-brace?)))
            (define-values (stmts remaining1) (stmt* (drop remaining0 2)))
            (token-must-be token-rcurly-brace? remaining1 input)
            (values (node-func-declaration name args stmts variables) (rest remaining1))]
