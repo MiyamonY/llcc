@@ -507,14 +507,15 @@
   (define (expr tokens)
     (assign tokens))
 
-  (define (star a terminate?)
+  (define (star a continue?)
     (lambda (tokens)
       (define (rec nodes tokens)
         (cond [(null? tokens) (values (reverse nodes) tokens)]
-              [(terminate? (first tokens)) (values (reverse nodes) tokens)]
-              [else
+              [(continue? (first tokens))
                (define-values (node remaining) (a tokens))
-               (rec (cons node nodes) remaining)]))
+               (rec (cons node nodes) remaining)]
+              [else
+               (values (reverse nodes) tokens)]))
       (rec '() tokens)))
 
   ;; stmt = expr ";"
@@ -581,7 +582,7 @@
            (define-values (body remaining3) (stmt (rest remaining2)))
            (values (node-for init conditional next body) remaining3)]
           [(token-lcurly-brace? (first tokens))
-           (define stmt* (star stmt token-rcurly-brace?))
+           (define stmt* (star stmt (compose not token-rcurly-brace?)))
            (define-values (stmts remaining) (stmt* (rest tokens)))
            (token-must-be token-rcurly-brace? remaining input)
            (values (node-block stmts) (rest remaining))]
@@ -616,14 +617,15 @@
            (define-values (args remaining0) (arg* (drop tokens 3)))
            (token-must-be token-rparen? remaining0 input)
            (token-must-be token-lcurly-brace? (drop remaining0 1) input)
-           (define-values (stmts remaining1) ((star stmt token-rcurly-brace?) (drop remaining0 2)))
+           (define stmt* (star stmt (compose not token-rcurly-brace?)))
+           (define-values (stmts remaining1) (stmt* (drop remaining0 2)))
            (token-must-be token-rcurly-brace? remaining1 input)
            (values (node-func-declaration name args stmts variables) (rest remaining1))]
           [else (values '() tokens)]))
 
   ;; program = declaration*
   (define (program tokens)
-    (define declaration* (star declaration (compose1 not token-int?)))
+    (define declaration* (star declaration token-int?))
     (declaration* tokens))
 
   (define-values (nodes remaining) (program (tokenize input)))
