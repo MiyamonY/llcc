@@ -70,7 +70,10 @@
 (struct node-unary-operator node (op unary)
   #:transparent)
 
-(struct variable (name offset)
+(struct type node (type base)
+  #:transparent)
+
+(struct variable (name type offset)
   #:transparent)
 
 (define (node-sub left right)
@@ -158,11 +161,11 @@
         (variable-offset (hash-ref variables name))
         #f))
 
-  (define (assign-variable name)
+  (define (assign-variable name type)
     (if (hash-has-key? variables name)
         #f
         (let ([offset (new-offset)])
-          (hash-set! variables name (variable name offset))
+          (hash-set! variables name (variable name type offset))
           (node-local-variable name offset))))
 
   ;; term = num | ident ("(" (expr ("," expr)*) ? ")")? | "(" expr ")""
@@ -301,8 +304,15 @@
                (values (reverse nodes) tokens)]))
       (rec '() tokens)))
 
+  ;; pointers =  ("*")*
+  (define (pointers base tokens)
+    (cond [(token-mul? (first tokens))
+           (pointers (type 'pointer base) (rest tokens))]
+          [else
+           (values base tokens)]))
+
   ;; stmt = expr ";"
-  ;;      | "int" ident ";"
+  ;;      | "int" pointers ident ";"
   ;;      | "return" expr ";"
   ;;      | "if" "(" expr ")" stmt ("else" stmt)?
   ;;      | "while" "(" expr ")" stmt
@@ -312,14 +322,17 @@
     (cond [(empty? tokens)
            (parse-error input (string-length input) "stmt is empty")]
           [(token-int? (first tokens))
-           (token-must-be token-identifier? (rest tokens) input)
-           (token-must-be token-semicolon? (drop tokens 2) input)
-           (define name (token-identifier-name (first (rest tokens))))
-           (define var (assign-variable name))
+           (define-values (ty remaining) (pointers (type 'int '()) (rest tokens)))
+
+           (token-must-be token-identifier? remaining input)
+           (define name (token-identifier-name (first remaining)))
+           (define var (assign-variable name ty))
            (when (not var)
-             (parse-error input (token-char-at (first (rest tokens)))
+             (parse-error input (token-char-at (first remaining))
                           (format "variable: ~a is already assigned" name)))
-           (values (node-variable-declaration name) (drop tokens 3))]
+
+           (token-must-be token-semicolon? (rest remaining) input)
+           (values (node-variable-declaration name) (drop remaining 2))]
           [(token-return? (first tokens))
            (define-values (expr0 remaining) (expr (rest tokens)))
            (token-must-be token-semicolon? remaining input)
@@ -382,13 +395,13 @@
       (token-must-be token-int? (rest tokens) input)
       (token-must-be token-identifier? (drop tokens 2) input)
       (define name (token-identifier-name (first (drop tokens 2))))
-      (values (assign-variable name) (drop tokens 3)))
+      (values (assign-variable name (type 'int '())) (drop tokens 3)))
     (define cont* (star cont token-comma?))
 
     (cond [(token-int? (first tokens))
            (token-must-be token-identifier? (rest tokens) input)
            (define name (token-identifier-name (first (rest tokens))))
-           (define arg (assign-variable name))
+           (define arg (assign-variable name (type 'int '())))
            (define-values (args remaining) (cont* (drop tokens 2)))
            (values (cons arg args) remaining)]
           [else
@@ -437,6 +450,9 @@
   (define (node-main body variables)
     (node-func-declaration "main" '() body variables))
 
+  (define (variable-int name offset)
+    (variable name (type 'int '()) offset))
+
   (test-equal? "num"
                (parse "int main( ) {return 12;}")
                (list
@@ -448,7 +464,7 @@
                 (node-main (list
                             (node-variable-declaration "x")
                             (node-local-variable "x" 8))
-                           (make-hash `(("x" . ,(variable "x" 8)))))))
+                           (make-hash `(("x" . ,(variable-int "x" 8)))))))
 
   (test-equal? "func call without args" (parse "int main(){test();}")
                (list
@@ -490,7 +506,7 @@
                        (node-variable-declaration "x")
                        (node-add (node-addr (node-local-variable "x" 8))
                                  (node-addr (node-number 3))))
-                      (make-hash `(("x" . ,(variable "x" 8)))))))
+                      (make-hash `(("x" . ,(variable-int "x" 8)))))))
 
   (test-equal? "unary deref" (parse "int main(){ int x; &*&x + &(3+4);}")
                (list (node-main
@@ -499,7 +515,7 @@
                        (node-add (node-addr (node-deref (node-addr (node-local-variable "x" 8))))
                                  (node-addr (node-add (node-number 3)
                                                       (node-number 4)))))
-                      (make-hash `(("x" . ,(variable "x" 8)))))))
+                      (make-hash `(("x" . ,(variable-int "x" 8)))))))
 
 
   (test-equal? "mul muls and divs" (parse "int main(){2*3/2*3/2;}")
@@ -533,7 +549,7 @@
                        (node-variable-declaration "y")
                        (node-assign (node-local-variable "x" 8)
                                     (node-assign (node-local-variable "y" 16) (node-number 1))))
-                      (make-hash `(("x" . ,(variable "x" 8)) ("y" . ,(variable "y" 16)))))))
+                      (make-hash `(("x" . ,(variable-int "x" 8)) ("y" . ,(variable-int "y" 16)))))))
 
   (test-equal? "return"
                (parse "int main(){return 3;}")
@@ -559,7 +575,7 @@
                        (node-variable-declaration "x")
                        (node-while (node-lt (node-local-variable "x" 8) (node-number 3))
                                    (node-return (node-number 4))))
-                      (make-hash `(("x" . ,(variable "x" 8)))))))
+                      (make-hash `(("x" . ,(variable-int "x" 8)))))))
 
   (test-equal? "for all"
                (parse "int main(){int x; for (x=0; x < 10; x = x + 1) 2 + 3;}")
@@ -573,7 +589,7 @@
                                                (node-local-variable "x" 8)
                                                (node-number 1)))
                                  (node-add (node-number 2) (node-number 3))))
-                      (make-hash `(("x" . ,(variable "x" 8)))))))
+                      (make-hash `(("x" . ,(variable-int "x" 8)))))))
 
   (test-equal? "for while"
                (parse "int main(){for (;;) 1;}")
@@ -586,7 +602,7 @@
                       (make-hash))))
 
   (test-equal? "blocks"
-               (parse "int main(){int a; {int b; int c; a=1; b=2; c=a+b;return c;}}")
+               (parse "int main(){int **a; {int b; int c; a=1; b=2; c=a+b;return c;}}")
                (list (node-main
                       (list
                        (node-variable-declaration "a")
@@ -600,7 +616,9 @@
                                                            (node-local-variable "b" 16)))
                                     (node-return (node-local-variable "c" 24)))))
                       (make-hash
-                       `(("a" . ,(variable "a" 8)) ("b" . ,(variable "b" 16)) ("c" . ,(variable "c" 24)))))))
+                       `(("a" . ,(variable "a" (type 'pointer (type 'pointer (type 'int '()))) 8))
+                         ("b" . ,(variable-int "b" 16))
+                         ("c" . ,(variable-int "c" 24)))))))
 
   (test-equal? "function declarations"
                (parse "int a(int x, int y){int z; z = x + y; return z+3;} int b(int y){return 3*y;}
@@ -619,14 +637,16 @@ int main(){return a()+b();}")
                     (node-local-variable "y" 16)))
                   (node-return
                    (node-operator "+" (node-local-variable "z" 24) (node-number 3))))
-                 (make-hash `(("x" . ,(variable "x" 8)) ("y" . ,(variable "y" 16)) ("z" . ,(variable "z" 24))) ))
+                 (make-hash `(("x" . ,(variable-int "x" 8))
+                              ("y" . ,(variable-int "y" 16))
+                              ("z" . ,(variable-int "z" 24))) ))
                 (node-func-declaration
                  "b"
                  (list (node-local-variable "y" 8))
                  (list
                   (node-return
                    (node-operator "*" (node-number 3) (node-local-variable "y" 8))))
-                 (make-hash `(("y" . ,(variable "y" 8)))))
+                 (make-hash `(("y" . ,(variable-int "y" 8)))))
                 (node-func-declaration
                  "main"
                  '()
