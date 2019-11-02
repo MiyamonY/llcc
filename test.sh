@@ -75,4 +75,6 @@ try 21  'int test6(int a, int b, int c, int d, int e, int f){return a+b+c+d+e+f;
          int main(){return test6(1,2,3,4,5,6);}'
 try 89  'int fib(int n){if(n==0){return 1;} else if(n==1){return 1;} else {return fib(n-1) + fib(n-2);}}
          int main(){return fib(10);}'
+try 3   'int main(){int x; int *y; y = &x; *y = 3; return x;}'
+try 10  'int main(){int x; int *y; int **z; x = 10; y = &x; z = &y; return **z;}'
 echo OK
