@@ -77,4 +77,8 @@ try 89  'int fib(int n){if(n==0){return 1;} else if(n==1){return 1;} else {retur
          int main(){return fib(10);}'
 try 3   'int main(){int x; int *y; y = &x; *y = 3; return x;}'
 try 10  'int main(){int x; int *y; int **z; x = 10; y = &x; z = &y; return **z;}'
+try 30  'int mult3(int *x){*x = *x * 3;}
+         int main(){ int x; x = 10; mult3(&x); return x;}'
+try 3   'int swap(int *a, int *b) {int x; x = *a; *a = *b; *b=x;}
+         int main(){int x; int y; x = 3; y = 4; swap(&x, &y); return y;}'
 echo OK

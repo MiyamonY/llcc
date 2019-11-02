@@ -387,23 +387,25 @@
            (token-must-be token-semicolon? remaining input)
            (values expr0 (rest remaining))]))
 
-  ;; arguments = "int" ident ("," "int" indent)*
+  ;; arguments = "int" pointer ident ("," "int" pointer indent)*
   ;;           | e
   (define (arguments tokens)
     (define (cont tokens)
       (token-must-be token-comma? tokens input)
       (token-must-be token-int? (rest tokens) input)
-      (token-must-be token-identifier? (drop tokens 2) input)
-      (define name (token-identifier-name (first (drop tokens 2))))
-      (values (assign-variable name (type 'int '())) (drop tokens 3)))
+      (define-values (ty remaining) (pointers (type 'int '()) (drop tokens 2)))
+      (token-must-be token-identifier?  remaining input)
+      (define name (token-identifier-name (first remaining)))
+      (values (assign-variable name ty) (rest remaining)))
     (define cont* (star cont token-comma?))
 
     (cond [(token-int? (first tokens))
-           (token-must-be token-identifier? (rest tokens) input)
-           (define name (token-identifier-name (first (rest tokens))))
-           (define arg (assign-variable name (type 'int '())))
-           (define-values (args remaining) (cont* (drop tokens 2)))
-           (values (cons arg args) remaining)]
+           (define-values (ty remaining) (pointers (type 'int '()) (rest tokens)))
+           (token-must-be token-identifier? remaining input)
+           (define name (token-identifier-name (first remaining)))
+           (define arg (assign-variable name ty))
+           (define-values (args remaining1) (cont* (rest remaining)))
+           (values (cons arg args) remaining1)]
           [else
            (values '() tokens)]))
 
@@ -621,7 +623,7 @@
                          ("c" . ,(variable-int "c" 24)))))))
 
   (test-equal? "function declarations"
-               (parse "int a(int x, int y){int z; z = x + y; return z+3;} int b(int y){return 3*y;}
+               (parse "int a(int x, int **y){int z; z = x + y; return z+3;} int b(int *y){return 3*y;}
 int main(){return a()+b();}")
                (list
                 (node-func-declaration
@@ -638,7 +640,7 @@ int main(){return a()+b();}")
                   (node-return
                    (node-operator "+" (node-local-variable "z" 24) (node-number 3))))
                  (make-hash `(("x" . ,(variable-int "x" 8))
-                              ("y" . ,(variable-int "y" 16))
+                              ("y" . ,(variable-int "y" (type 'pointer (type 'pointer (type 'int '()))) 16))
                               ("z" . ,(variable-int "z" 24))) ))
                 (node-func-declaration
                  "b"
@@ -646,7 +648,7 @@ int main(){return a()+b();}")
                  (list
                   (node-return
                    (node-operator "*" (node-number 3) (node-local-variable "y" 8))))
-                 (make-hash `(("y" . ,(variable-int "y" 8)))))
+                 (make-hash `(("y" . ,(variable "y" (type 'pointer (type 'int '())) 8)))))
                 (node-func-declaration
                  "main"
                  '()
