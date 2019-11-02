@@ -36,12 +36,14 @@
         (instruction-command "mov rbp, rsp")
         (instruction-command (format "sub rsp, ~a" (* 8 (hash-count variables))))))
 
-(define (transfer-arguments args)
+(define (transfer-arguments args variables)
   (define registers '("r9" "r8" "rcx" "rdx" "rsi" "rdi"))
   (append-map
    (lambda (arg reg)
+     (define name (node-local-variable-name arg))
+     (define offset (variables-variable-offset variables name))
      (list (instruction-command "mov rax, rbp")
-           (instruction-command (format "sub rax, ~a" (node-local-variable-offset arg)))
+           (instruction-command (format "sub rax, ~a" offset))
            (instruction-command (format "mov [rax], ~a" reg))))
    (reverse args)
    (take-right registers (length args))))
@@ -137,15 +139,18 @@
                       (take-right registers arg-num))
           (generate-func-call func)))
 
-(define (generate-left-value node)
+(define (generate-left-value variables node)
   (cond [(node-local-variable? node)
+         (define name (node-local-variable-name node))
+         (define offset (variables-variable-offset variables name))
          (list (instruction-command "mov rax, rbp")
-               (instruction-command (format "sub rax, ~a" (node-local-variable-offset node)))
+               (instruction-command (format "sub rax, ~a" offset))
                (instruction-command "push rax"))]
         [(node-deref? node)
-         (generate-node (node-unary-operator-unary node))]
+         (generate-node variables (node-unary-operator-unary node))]
         [else
-         (generate-error (format "left value must be local variable or deref operator: ~a" (object-name node)))]))
+         (generate-error
+          (format "left value must be local variable or deref operator: ~a" (object-name node)))]))
 
 (define gen-label
   ((lambda ()
@@ -154,68 +159,68 @@
        (set! label-num (add1 label-num))
        (format ".Llabel~a" label-num)))))
 
-(define (generate-node node)
+(define (generate-node variables node)
   (if (null? node)
       '()
       (cond [(node-number? node) (push (node-number-val node))]
             [(node-local-variable? node)
-             (append (generate-left-value node)
+             (append (generate-left-value variables node)
                      (generate-load-from-local-variable))]
             [(node-assign? node)
-             (append (generate-left-value (node-assign-left node))
-                     (generate-node (node-assign-right node))
+             (append (generate-left-value variables (node-assign-left node))
+                     (generate-node variables (node-assign-right node))
                      (generate-store-to-local-variable))]
             [(node-return? node)
-             (append (generate-node (node-return-expr node))
+             (append (generate-node variables (node-return-expr node))
                      (pop-result)
                      (free-local-variables)
                      (return))]
             [(node-if? node)
              (define label-else (gen-label))
              (define label-end (gen-label))
-             (append (generate-node (node-if-conditional node))
+             (append (generate-node variables (node-if-conditional node))
                      (generate-equal-0)
                      (generate-jump-if-equal label-else)
-                     (generate-node (node-if-true-clause node))
+                     (generate-node variables (node-if-true-clause node))
                      (generate-jump label-end)
                      (generate-label label-else)
-                     (generate-node (node-if-false-clause node))
+                     (generate-node variables (node-if-false-clause node))
                      (generate-label label-end))]
             [(node-while? node)
              (define label-start (gen-label))
              (define label-end (gen-label))
              (append (generate-label label-start)
-                     (generate-node (node-while-conditional node))
+                     (generate-node variables (node-while-conditional node))
                      (generate-equal-0)
                      (generate-jump-if-equal label-end)
-                     (generate-node (node-while-body node))
+                     (generate-node variables (node-while-body node))
                      (generate-jump label-start)
                      (generate-label label-end))]
             [(node-for? node)
              (define label-start (gen-label))
              (define label-end (gen-label))
-             (append (generate-node (node-for-init node))
+             (append (generate-node variables (node-for-init node))
                      (pop-result)
                      (generate-label label-start)
-                     (generate-node (node-for-conditional node))
+                     (generate-node variables (node-for-conditional node))
                      (generate-equal-0)
                      (generate-jump-if-equal label-end)
-                     (generate-node (node-for-body node))
-                     (generate-node (node-for-next node))
+                     (generate-node variables (node-for-body node))
+                     (generate-node variables (node-for-next node))
                      (generate-jump label-start)
                      (generate-label label-end))]
             [(node-block? node)
-             (append-map generate-node (node-block-bodys node))]
+             (append-map (curry generate-node variables) (node-block-bodys node))]
             [(node-func-call? node)
              (define func (node-func-call-func node))
              (define args (node-func-call-args node))
              (cond [(null? args) (generate-func-call func)]
                    [else
-                    (append (append-map generate-node args)
+                    (append (append-map (curry generate-node variables) args)
                             (generate-func-call-with-args func (length args)))])]
             [(node-operator? node)
-             (append (generate-node (node-operator-left node))
-                     (generate-node (node-operator-right node))
+             (append (generate-node variables (node-operator-left node))
+                     (generate-node variables (node-operator-right node))
                      (pop-operands)
                      (cond [(node-add? node) (generate-add)]
                            [(node-sub? node) (generate-sub)]
@@ -229,9 +234,9 @@
                             (generate-error (format "unexpected operator: ~a" (node-operator-op node)))])
                      (push-result))]
             [(node-addr? node)
-             (append (generate-left-value (node-unary-operator-unary node)))]
+             (append (generate-left-value variables (node-unary-operator-unary node)))]
             [(node-deref? node)
-             (append (generate-node (node-unary-operator-unary node))
+             (append (generate-node variables (node-unary-operator-unary node))
                      (deref))]
             [(node-func-declaration? node)
              (define name (node-func-declaration-name node))
@@ -240,17 +245,16 @@
              (define variables (node-func-declaration-variables node))
              (append (generate-label name)
                      (reserve-local-variables variables)
-                     (transfer-arguments args)
-                     (append-map generate-node body)
+                     (transfer-arguments args variables)
+                     (append-map (curry generate-node variables) body)
                      (pop-result)
                      (free-local-variables)
                      (return))]
             [(node-variable-declaration? node) '()])))
 
 (define (generate input)
-  (define body
-    (append
-     (append-map generate-node (parse input))))
+  (define-values (nodes variables) (parse input))
+  (define body (append-map (curry generate-node variables) nodes))
 
   (string-join
    `(".intel_syntax noprefix"
