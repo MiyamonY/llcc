@@ -4,6 +4,7 @@
 (require "node.rkt")
 (require "variables.rkt")
 (require "semantics.rkt")
+(require "type.rkt")
 
 (provide generate)
 
@@ -222,8 +223,24 @@
                     (append (append-map (curry generate-node variables) args)
                             (generate-func-call-with-args func (length args)))])]
             [(node-operator? node)
-             (append (generate-node variables (node-operator-left node))
-                     (generate-node variables (node-operator-right node))
+             (define left (node-operator-left node))
+             (define right (node-operator-right node))
+             (append (generate-node variables left)
+                     (if (and (is-int? left) (is-pointer? right))
+                         (append
+                          (push (if (is-pointer? (base-type right)) 8 8))
+                          (pop-operands)
+                          (generate-mul)
+                          (push-result))
+                         '())
+                     (generate-node variables right)
+                     (if (and (is-pointer? left) (is-int? right))
+                         (append
+                          (push (if (is-pointer? (base-type left)) 8 8))
+                          (pop-operands)
+                          (generate-mul)
+                          (push-result))
+                         '())
                      (pop-operands)
                      (cond [(node-add? node) (generate-add)]
                            [(node-sub? node) (generate-sub)]

@@ -59,7 +59,7 @@
          (unless (is-pointer? unary0)
            (semantics-error "dereferencing scalar type" unary0))
          (struct-copy node-unary-operator node
-                      [type #:parent node-expr (base-type (node-expr-type unary0))]
+                      [type #:parent node-expr (base-type unary0)]
                       [unary unary0])]
         [(node-if? node)
          (struct-copy node-if node
@@ -74,14 +74,15 @@
                       [body (analyze variables (node-for-body node))])]
         [(node-while? node)
          (struct-copy node-while node
-                      [conditional (node-while-conditional node)]
-                      [body (node-while-body node)])]
+                      [conditional (analyze variables (node-while-conditional node))]
+                      [body (analyze variables (node-while-body node))])]
         [(node-block? node)
          (struct-copy node-block node
                       [bodys (map (curry analyze variables) (node-block-bodys node))])]
         [(node-func-call? node)
          (struct-copy node-func-call node
-                      [type #:parent node-expr int])]
+                      [type #:parent node-expr int]
+                      [args (map (lambda (arg) (analyze variables arg)) (node-func-call-args node))])]
         [(node-return? node)
          (struct-copy node-return node [expr (analyze variables (node-return-expr node))])]
         [(node-variable-declaration? node) node]
@@ -151,6 +152,10 @@
   (test-equal? "node-deref"
                (analyze variables (node-unary-operator void "*" (node-local-variable void "y")))
                (node-unary-operator (pointer-of int) "*" y))
+
+  (test-equal? "node-func-call"
+               (analyze variables (node-func-call void "test" (list (node-number void 3))))
+               (node-func-call int "test" (list (number 3))))
 
   (define tests
     (list (node-assign void (node-number void 3)

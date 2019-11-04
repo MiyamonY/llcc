@@ -16,20 +16,22 @@
 
 (define int (type 'int '()))
 
-(define (base-type type)
-  (type-base type))
+(define (base-type node)
+  (type-base (node-expr-type node)))
 
 (define (pointer-of base)
   (type 'pointer base))
 
-(define (type-of node)
-  (type-type (node-expr-type node)))
+(define (type-of type-or-node)
+  (if (type? type-or-node)
+      (type-type type-or-node)
+      (type-type (node-expr-type type-or-node))))
 
-(define (is-int? node)
-  (equal? (type-of node) 'int))
+(define (is-int? type-or-node)
+  (equal? (type-of type-or-node) 'int))
 
-(define (is-pointer? node)
-  (equal? (type-of node) 'pointer))
+(define (is-pointer? type-or-node)
+  (equal? (type-of type-or-node) 'pointer))
 
 (define (same-type? node-x node-y)
   (equal? (type-of node-x) (type-of node-y)))
