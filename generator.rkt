@@ -1,6 +1,8 @@
 #lang racket
 
 (require "parser.rkt")
+(require "node.rkt")
+(require "variables.rkt")
 (require "semantics.rkt")
 
 (provide generate)
@@ -42,7 +44,7 @@
   (append-map
    (lambda (arg reg)
      (define name (node-local-variable-name arg))
-     (define offset (variables-variable-offset variables name))
+     (define offset (variable-offset (find-variable variables name)))
      (list (instruction-command "mov rax, rbp")
            (instruction-command (format "sub rax, ~a" offset))
            (instruction-command (format "mov [rax], ~a" reg))))
@@ -143,7 +145,7 @@
 (define (generate-left-value variables node)
   (cond [(node-local-variable? node)
          (define name (node-local-variable-name node))
-         (define offset (variables-variable-offset variables name))
+         (define offset (variable-offset (find-variable variables name)))
          (list (instruction-command "mov rax, rbp")
                (instruction-command (format "sub rax, ~a" offset))
                (instruction-command "push rax"))]

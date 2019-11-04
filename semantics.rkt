@@ -1,26 +1,10 @@
 #lang racket
 
-
-(require "parser.rkt")
+(require "variables.rkt")
+(require "node.rkt")
+(require "type.rkt")
 
 (provide semantics)
-
-(define int (type 'int '()))
-
-(define (pointer-of base)
-  (type 'pointer base))
-
-(define (type-of node)
-  (type-type (node-expr-type node)))
-
-(define (is-int? node)
-  (equal? (type-of node) 'int))
-
-(define (is-pointer? node)
-  (equal? (type-of node) 'pointer))
-
-(define (same-type? node-x node-y)
-  (equal? (type-of node-x) (type-of node-y)))
 
 (define (semantics-error msg node)
   (raise-user-error
@@ -29,7 +13,7 @@
 (define (analyze variables node)
   (cond [(node-local-variable? node)
          (define name (node-local-variable-name node))
-         (define type (variables-variable-type variables name))
+         (define type (variable-type (find-variable variables name)))
          (struct-copy node-local-variable node [type #:parent node-expr type])]
         [(node-number? node)
          (struct-copy node-number node [type #:parent node-expr int])]
@@ -75,7 +59,7 @@
          (unless (is-pointer? unary0)
            (semantics-error "dereferencing scalar type" unary0))
          (struct-copy node-unary-operator node
-                      [type #:parent node-expr (type-base (node-expr-type unary0))]
+                      [type #:parent node-expr (base-type (node-expr-type unary0))]
                       [unary unary0])]
         [(node-if? node)
          (struct-copy node-if node

@@ -1,164 +1,11 @@
 #lang racket
 
 (require "tokenizer.rkt")
+(require "node.rkt")
+(require "type.rkt")
+(require "variables.rkt")
 
-(provide
- parse
- (struct-out type)
- (struct-out variable)
- variables-variable-offset
- variables-variable-type
- node-addr
- node-add?
- node-sub?
- node-mul?
- node-div?
- node-eq?
- node-neq?
- node-lt?
- node-le?
- node-addr?
- node-deref?
- (struct-out node-expr)
- (struct-out node-local-variable)
- (struct-out node-number)
- (struct-out node-assign)
- (struct-out node-return)
- (struct-out node-if)
- (struct-out node-while)
- (struct-out node-for)
- (struct-out node-block)
- (struct-out node-func-call)
- (struct-out node-operator)
- (struct-out node-unary-operator)
- (struct-out node-func-declaration)
- (struct-out node-variable-declaration))
-
-(struct node ()
-  #:transparent)
-
-(struct node-expr node (type)
-  #:transparent)
-
-(struct node-number node-expr (val)
-  #:transparent)
-
-(define (new-node-number val)
-  (node-number '() val))
-
-(struct node-local-variable node-expr (name)
-  #:transparent)
-
-(define (new-node-local-variable name)
-  (node-local-variable '() name))
-
-(struct node-assign node-expr (left right)
-  #:transparent)
-
-(define (new-node-assign left right)
-  (node-assign '() left right))
-
-(struct node-return node (expr)
-  #:transparent)
-
-(struct node-if node (conditional true-clause false-clause)
-  #:transparent)
-
-(struct node-while node (conditional body)
-  #:transparent)
-
-(struct node-for node (init conditional next body)
-  #:transparent)
-
-(struct node-block node (bodys)
-  #:transparent)
-
-(struct node-func-call node-expr (func args)
-  #:transparent)
-
-(define (new-node-func-call func args)
-  (node-func-call '() func args))
-
-(struct node-func-declaration node (name args body variables)
-  #:transparent)
-
-(struct node-variable-declaration node (var)
-  #:transparent)
-
-(struct node-operator node-expr (op left right)
-  #:transparent)
-
-(define (new-node-operator op left right)
-  (node-operator '() op left right))
-
-(struct node-unary-operator node-expr (op unary)
-  #:transparent)
-
-(define (new-node-unary-operator op unary)
-  (node-unary-operator '() op unary))
-
-(struct type node (type base)
-  #:transparent)
-
-(struct variable (name type offset)
-  #:transparent)
-
-(define (node-sub left right)
-  (new-node-operator "-" left right))
-
-(define (node-eq left right)
-  (new-node-operator "==" left right))
-
-(define (node-neq left right)
-  (new-node-operator "!=" left right))
-
-(define (node-lt left right)
-  (new-node-operator "<" left right))
-
-(define (node-le left right)
-  (new-node-operator "<=" left right))
-
-(define (node-addr node)
-  (new-node-unary-operator "&" node))
-
-(define (node-deref node)
-  (new-node-unary-operator "*" node))
-
-(define (node-add? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "+")))
-
-(define (node-sub? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "-")))
-
-(define (node-mul? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "*")))
-
-(define (node-div? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "/")))
-
-(define (node-eq? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "==")))
-
-(define (node-neq? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "!=")))
-
-(define (node-lt? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "<")))
-
-(define (node-le? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "<=")))
-
-(define (node-addr? node)
-  (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "&")))
-
-(define (node-deref? node)
-  (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "*")))
-
-(define (reverse-compare op)
-  (cond [(equal? op ">") "<"]
-        [(equal? op "<") ">"]
-        [(equal? op "<=") ">="]
-        [(equal? op ">=") "<="]))
+(provide parse)
 
 (define (token-must-be token-pred tokens input)
   (cond [(empty? tokens)
@@ -171,38 +18,11 @@
   (raise-user-error
    'parse-error  "\n~a\n~a^\n~a\n" expr (make-string char-at #\space) msg))
 
-(define (variables-variable variables name)
-  (hash-ref variables
-            name
-            (lambda () (raise-user-error
-                   'variable-not-found "variable ~a not found in ~a" name variables))))
-
-(define (variables-variable-offset variables name)
-  (variable-offset (variables-variable variables name)))
-
-(define (variables-variable-type variables name)
-  (variable-type (variables-variable variables name)))
+(define variables (make-variables))
+(define (reset-env)
+  (set! variables (make-variables)))
 
 (define (parse input)
-  (define variables (make-hash))
-  (define offset 0)
-
-  (define (new-offset)
-    (set! offset (+ offset 8))
-    offset)
-
-  (define (reset-env)
-    (set! variables (make-hash))
-    (set! offset 0))
-
-  (define (reference-variable name)
-    (hash-has-key? variables name))
-
-  (define (assign-variable name type)
-    (if (reference-variable name)
-        #f
-        (let ([offset (new-offset)])
-          (hash-set! variables name (variable name type offset)))))
 
   ;; term = num | ident ("(" (expr ("," expr)*) ? ")")? | "(" expr ")""
   (define (term tokens)
@@ -228,9 +48,7 @@
                          (token-must-be token-rparen? remaining2 input)
                          (values (new-node-func-call name args) (cdr remaining2))])]
                  [else
-                  (unless (reference-variable name)
-                    (parse-error input (token-char-at (first tokens))
-                                 (format "variable: ~a is not declared" name)))
+                  (find-variable variables name)
                   (values (new-node-local-variable name) (cdr tokens))])]
           [(token-lparen? (first tokens))
            (define-values (expr0 remaining) (expr (rest tokens)))
@@ -342,7 +160,7 @@
   ;; pointers =  ("*")*
   (define (pointers base tokens)
     (cond [(token-mul? (first tokens))
-           (pointers (type 'pointer base) (rest tokens))]
+           (pointers (pointer-of base) (rest tokens))]
           [else
            (values base tokens)]))
 
@@ -357,13 +175,11 @@
     (cond [(empty? tokens)
            (parse-error input (string-length input) "stmt is empty")]
           [(token-int? (first tokens))
-           (define-values (ty remaining) (pointers (type 'int '()) (rest tokens)))
+           (define-values (ty remaining) (pointers int (rest tokens)))
 
            (token-must-be token-identifier? remaining input)
            (define name (token-identifier-name (first remaining)))
-           (unless (assign-variable name ty)
-             (parse-error input (token-char-at (first remaining))
-                          (format "variable: ~a is already assigned" name)))
+           (assign-variable variables name ty)
            (token-must-be token-semicolon? (rest remaining) input)
            (values (node-variable-declaration name) (drop remaining 2))]
           [(token-return? (first tokens))
@@ -426,19 +242,19 @@
     (define (cont tokens)
       (token-must-be token-comma? tokens input)
       (token-must-be token-int? (rest tokens) input)
-      (define-values (ty remaining) (pointers (type 'int '()) (drop tokens 2)))
+      (define-values (ty remaining) (pointers int (drop tokens 2)))
       (token-must-be token-identifier?  remaining input)
       (define name (token-identifier-name (first remaining)))
-      (assign-variable name ty)
+      (assign-variable variables name ty)
       (define arg (new-node-local-variable name))
       (values arg (rest remaining)))
     (define cont* (star cont token-comma?))
 
     (cond [(token-int? (first tokens))
-           (define-values (ty remaining) (pointers (type 'int '()) (rest tokens)))
+           (define-values (ty remaining) (pointers int (rest tokens)))
            (token-must-be token-identifier? remaining input)
            (define name (token-identifier-name (first remaining)))
-           (assign-variable name ty)
+           (assign-variable variables name ty)
            (define arg (new-node-local-variable name))
            (define-values (args remaining1) (cont* (rest remaining)))
            (values (cons arg args) remaining1)]
@@ -489,7 +305,7 @@
     (node-func-declaration "main" '() (node-block body) variables))
 
   (define (variable-int name offset)
-    (variable name (type 'int '()) offset))
+    (variable name int offset))
 
   (define (parse-node input)
     (define-values (_ node) (parse input))
@@ -663,7 +479,7 @@
                                                                (new-node-local-variable "b")))
                                     (node-return (new-node-local-variable "c")))))
                       (make-hash
-                       `(("a" . ,(variable "a" (type 'pointer (type 'pointer (type 'int '()))) 8))
+                       `(("a" . ,(variable "a" (pointer-of (pointer-of int)) 8))
                          ("b" . ,(variable-int "b" 16))
                          ("c" . ,(variable-int "c" 24)))))))
 
@@ -686,7 +502,7 @@ int main(){return a()+b();}")
                    (node-return
                     (new-node-operator "+" (new-node-local-variable "z") (new-node-number 3)))))
                  (make-hash `(("x" . ,(variable-int "x" 8))
-                              ("y" . ,(variable "y" (type 'pointer (type 'pointer (type 'int '()))) 16))
+                              ("y" . ,(variable "y" (pointer-of (pointer-of int)) 16))
                               ("z" . ,(variable-int "z" 24))) ))
                 (node-func-declaration
                  "b"
@@ -695,7 +511,7 @@ int main(){return a()+b();}")
                   (list
                    (node-return
                     (new-node-operator "*" (new-node-number 3) (new-node-local-variable "y")))))
-                 (make-hash `(("y" . ,(variable "y" (type 'pointer (type 'int '())) 8)))))
+                 (make-hash `(("y" . ,(variable "y" (pointer-of int) 8)))))
                 (node-func-declaration
                  "main"
                  '()
@@ -705,7 +521,7 @@ int main(){return a()+b();}")
                     (new-node-operator "+" (new-node-func-call "a" '()) (new-node-func-call "b" '())))))
                  (make-hash))))
 
-  (define input-for-exn
+  (define input-for-parser-error
     '("int main(){12+;}"
       "int main(){12+ +;}"
       "int main(){12+ -;}"
@@ -720,9 +536,7 @@ int main(){return a()+b();}")
       "int main(){if(1+2); }"
       "int main(){if(1+2}"
       "int main(){3/}"
-      "int main(){int x; x + y;}"
       "int main(){int ; int x; int y; x + y;}"
-      "int main(){int x; int x; int y; 3;}"
       "int main(){3/-}"
       "int main(){{1+2;}"
       "int main(){"
@@ -734,9 +548,19 @@ int main(){return a()+b();}")
       "main(int x, y) {2+3;}"
       "(){}"
       "12"))
-
   (for-each (lambda (input)
               (check-exn #rx"parse-error"
                          (lambda () (parse input))
                          (format "No exception raised: ~a" input)))
-            input-for-exn))
+            input-for-parser-error)
+
+  (define input-for-varaibles-error
+    '("int main(){int x; x + y;}"
+      "int main(){int x; int x; int y; 3;}"
+      "int main(int x){int x; x = 3; return 2*x;}"
+      "int main(int x, int x){return 2*x;}"))
+  (for-each (lambda (input)
+              (check-exn #rx"variables-error"
+                         (lambda () (parse input))
+                         (format "No exception raised: ~a" input)))
+            input-for-varaibles-error))
