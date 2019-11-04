@@ -1,6 +1,7 @@
 #lang racket
 
 (require "parser.rkt")
+(require "semantics.rkt")
 
 (provide generate)
 
@@ -246,15 +247,16 @@
              (append (generate-label name)
                      (reserve-local-variables variables)
                      (transfer-arguments args variables)
-                     (append-map (curry generate-node variables) body)
+                     (generate-node variables body)
                      (pop-result)
                      (free-local-variables)
                      (return))]
             [(node-variable-declaration? node) '()])))
 
 (define (generate input)
-  (define-values (nodes variables) (parse input))
-  (define body (append-map (curry generate-node variables) nodes))
+  (define-values (variables nodes) (parse input))
+  (define nodes0 (semantics variables nodes))
+  (define body (append-map (curry generate-node variables) nodes0))
 
   (string-join
    `(".intel_syntax noprefix"
