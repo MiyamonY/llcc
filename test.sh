@@ -84,4 +84,7 @@ try 3   'int swap(int *a, int *b) {int x; x = *a; *a = *b; *b=x;}
 try 10  'int main(){int x; int z; int *y;  z = 10; y = &x-1; return *y;}'
 try 10  'int main(){int x; int z; int *y;  x = 10; y = &z+1; return *y;}'
 try 11  'int main(){int x; int y; int z; int *w; z = 11; w = &x-2; return *w;}'
+try 24  'int main(){int x; return 3 * sizeof x;}'
+try 8   'int main(){int *x; return sizeof (3+x);}'
+try 8   'int main(){return sizeof(sizeof(3));}'
 echo OK

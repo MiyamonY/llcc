@@ -61,6 +61,13 @@
          (struct-copy node-unary-operator node
                       [type #:parent node-expr (base-type unary0)]
                       [unary unary0])]
+        [(node-sizeof? node)
+         (define unary0 (analyze variables (node-unary-operator-unary node)))
+         (node-number
+          int
+          (cond [(is-pointer? unary0) 8]
+                [(is-int? unary0) 8]
+                [else (semantics-error (format "unkown type:~a" (type-of unary0)) unary0)]))]
         [(node-if? node)
          (struct-copy node-if node
                       [conditional (analyze variables (node-if-conditional node))]
@@ -152,6 +159,14 @@
   (test-equal? "node-deref"
                (analyze variables (node-unary-operator void "*" (node-local-variable void "y")))
                (node-unary-operator (pointer-of int) "*" y))
+
+  (test-equal? "node-sizeof int"
+               (analyze variables (node-unary-operator void "sizeof" (node-local-variable void "x")))
+               (node-number int 8))
+
+  (test-equal? "node-sizeof pointer"
+               (analyze variables (node-unary-operator void "sizeof" (node-local-variable void "y")))
+               (node-number int 8))
 
   (test-equal? "node-func-call"
                (analyze variables (node-func-call void "test" (list (node-number void 3))))

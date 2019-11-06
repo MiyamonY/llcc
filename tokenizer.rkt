@@ -32,7 +32,8 @@
  token-identifier?
  token-identifier-name
  token-number?
- token-number-num)
+ token-number-num
+ token-sizeof?)
 
 (struct token (char-at)
   #:transparent)
@@ -124,6 +125,9 @@
 (define (token-addr char-at)
   (token-operator char-at "&"))
 
+(define (token-sizeof char-at)
+  (token-operator char-at "sizeof"))
+
 (define (token-plus? token)
   (and (token-operator? token) (equal? (token-operator-op token) "+")))
 
@@ -165,6 +169,9 @@
 
 (define (token-deref? token)
   (token-mul? token))
+
+(define (token-sizeof? token)
+  (and (token-operator? token) (equal? (token-operator-op token) "sizeof")))
 
 (define (token-int char-at)
   (token-type char-at "int"))
@@ -263,6 +270,7 @@
                ["while" (token-while char-at)]
                ["for" (token-for char-at)]
                ["int" (token-int char-at)]
+               ["sizeof" (token-sizeof char-at)]
                [_ (token-identifier char-at keyword)]))
            (cons token (tokenize-rec remaining (+ (length taken) char-at)))]
           (else

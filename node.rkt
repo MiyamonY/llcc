@@ -86,6 +86,9 @@
 (define (node-deref node)
   (new-node-unary-operator "*" node))
 
+(define (node-sizeof node)
+  (new-node-unary-operator "sizeof" node))
+
 (define (node-add? node)
   (and (node-operator? node) (equal? (node-operator-op node) "+")))
 
@@ -115,6 +118,9 @@
 
 (define (node-deref? node)
   (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "*")))
+
+(define (node-sizeof? node)
+  (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "sizeof")))
 
 (define (reverse-compare op)
   (cond [(equal? op ">") "<"]

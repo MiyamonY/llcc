@@ -57,7 +57,9 @@
           [else
            (parse-error input (token-char-at (first tokens)) "token must be number or ( or identifier")]))
 
-  ;; unary = ("+" | "-")? term | ("&" | "*") unary
+  ;; unary = ("+" | "-")? term
+  ;;        | ("&" | "*") unary
+  ;;        | "sizeof" unary
   (define (unary tokens)
     (when (null? tokens)
       (parse-error input (string-length input) "expression ends unexpectedly"))
@@ -73,6 +75,9 @@
           [(token-deref? unary-operator)
            (define-values (unary0 remaining) (unary (rest tokens)))
            (values (node-deref unary0) remaining)]
+          [(token-sizeof? unary-operator)
+           (define-values (unary0 remaining) (unary (rest tokens)))
+           (values (node-sizeof unary0) remaining)]
           [else (term tokens)]))
 
   ;; mul = unary ("*" unary | "/" unary)*
@@ -356,6 +361,11 @@
   (test-equal? "unary minus" (parse-node "int main(){-3;}")
                (list (node-main
                       (list (node-sub (new-node-number 0) (new-node-number 3)))
+                      (make-hash))))
+
+  (test-equal? "unary sizeof" (parse-node "int main(){sizeof(-3);}")
+               (list (node-main
+                      (list (node-sizeof (node-sub (new-node-number 0) (new-node-number 3))))
                       (make-hash))))
 
   (test-equal? "unary addr" (parse-node "int main(){ int x; &x + &3;}")
