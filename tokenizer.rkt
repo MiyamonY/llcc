@@ -22,6 +22,8 @@
  token-rparen?
  token-lcurly-brace?
  token-rcurly-brace?
+ token-lbracket?
+ token-rbracket?
  token-assign?
  token-return?
  token-if?
@@ -97,6 +99,21 @@
 
 (define (token-rcurly-brace? token)
   (and (token-curly-brace? token) (equal? (token-curly-brace-val token) "}")))
+
+(struct token-bracket token (val)
+  #:transparent)
+
+(define (token-lbracket char-at)
+  (token-bracket char-at "["))
+
+(define (token-rbracket char-at)
+  (token-bracket char-at "]"))
+
+(define (token-lbracket? token)
+  (and (token-bracket? token) (equal? (token-bracket-val token) "[")))
+
+(define (token-rbracket? token)
+  (and (token-bracket? token) (equal? (token-bracket-val token) "]")))
 
 (struct token-operator token (op)
   #:transparent)
@@ -222,6 +239,10 @@
            (cons (token-comma char-at) (tokenize-rec (rest lst) (add1 char-at)) )]
           [(equal? (peek lst) #\))
            (cons (token-rparen char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+          [(equal? (peek lst) #\[)
+           (cons (token-lbracket char-at) (tokenize-rec (rest lst) (add1 char-at)))]
+          [(equal? (peek lst) #\])
+           (cons (token-rbracket char-at) (tokenize-rec (rest lst) (add1 char-at)))]
           [(equal? (peek lst) #\=)
            (define next (peek (rest lst)))
            (cond [(equal? next #\=)
@@ -279,5 +300,7 @@
   (tokenize-rec (string->list expr) 0))
 
 (module+ test
+  (test-true "test token-lbracket?" (token-lbracket? (token-lbracket 10)))
+
   (test-exn "invalid operator "#rx"tokenize-error" (lambda () (tokenize "1 !! 2")))
   (check-exn #rx"tokenize-error" (lambda () (tokenize "~"))))

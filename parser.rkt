@@ -170,7 +170,7 @@
            (values base tokens)]))
 
   ;; stmt = expr ";"
-  ;;      | "int" pointers ident ";"
+  ;;      | "int" pointers ident ("[" num "]")? ";"
   ;;      | "return" expr ";"
   ;;      | "if" "(" expr ")" stmt ("else" stmt)?
   ;;      | "while" "(" expr ")" stmt
@@ -181,12 +181,19 @@
            (parse-error input (string-length input) "stmt is empty")]
           [(token-int? (first tokens))
            (define-values (ty remaining) (pointers int (rest tokens)))
-
            (token-must-be token-identifier? remaining input)
            (define name (token-identifier-name (first remaining)))
-           (assign-variable variables name ty)
-           (token-must-be token-semicolon? (rest remaining) input)
-           (values (node-variable-declaration name) (drop remaining 2))]
+           (cond [(token-lbracket? (first (rest remaining)))
+                  (token-must-be token-number? (drop remaining 2)  input)
+                  (define size (token-number-num (first (drop remaining 2))))
+                  (token-must-be token-rbracket? (drop remaining 3) input)
+                  (token-must-be token-semicolon? (drop remaining 4) input)
+                  (assign-variable variables name ty size)
+                  (values (node-variable-declaration name) (drop remaining 5))]
+                 [else
+                  (token-must-be token-semicolon? (rest remaining) input)
+                  (assign-variable variables name ty)
+                  (values (node-variable-declaration name) (drop remaining 2))])]
           [(token-return? (first tokens))
            (define-values (expr0 remaining) (expr (rest tokens)))
            (token-must-be token-semicolon? remaining input)
@@ -310,7 +317,7 @@
     (node-func-declaration "main" '() (node-block body) variables))
 
   (define (variable-int name offset)
-    (variable name int offset))
+    (variable name int offset 0))
 
   (define (parse-node input)
     (define-values (_ node) (parse input))
@@ -474,6 +481,14 @@
                                  (new-node-number 1)))
                       (make-hash))))
 
+  (test-equal? "array declaration"
+               (parse-node "int main(){int a[10];}")
+               (list (node-main
+                      (list
+                       (node-variable-declaration "a"))
+                      (make-hash
+                       `(("a" . ,(variable "a" int 8 10)))))))
+
   (test-equal? "blocks"
                (parse-node "int main(){int **a; {int b; int c; a=1; b=2; c=a+b;return c;}}")
                (list (node-main
@@ -489,7 +504,7 @@
                                                                (new-node-local-variable "b")))
                                     (node-return (new-node-local-variable "c")))))
                       (make-hash
-                       `(("a" . ,(variable "a" (pointer-of (pointer-of int)) 8))
+                       `(("a" . ,(variable "a" (pointer-of (pointer-of int)) 8 0))
                          ("b" . ,(variable-int "b" 16))
                          ("c" . ,(variable-int "c" 24)))))))
 
@@ -512,7 +527,7 @@ int main(){return a()+b();}")
                    (node-return
                     (new-node-operator "+" (new-node-local-variable "z") (new-node-number 3)))))
                  (make-hash `(("x" . ,(variable-int "x" 8))
-                              ("y" . ,(variable "y" (pointer-of (pointer-of int)) 16))
+                              ("y" . ,(variable "y" (pointer-of (pointer-of int)) 16 0))
                               ("z" . ,(variable-int "z" 24))) ))
                 (node-func-declaration
                  "b"
@@ -521,7 +536,7 @@ int main(){return a()+b();}")
                   (list
                    (node-return
                     (new-node-operator "*" (new-node-number 3) (new-node-local-variable "y")))))
-                 (make-hash `(("y" . ,(variable "y" (pointer-of int) 8)))))
+                 (make-hash `(("y" . ,(variable "y" (pointer-of int) 8 0)))))
                 (node-func-declaration
                  "main"
                  '()
@@ -556,6 +571,10 @@ int main(){return a()+b();}")
       "int main(int x,){2+3;}"
       "main(int x, int y) {2+3;}"
       "main(int x, y) {2+3;}"
+      "int main(){int x[;}"
+      "int main(){int x];}"
+      "int main(){int x[];}"
+      "int main(){int [];}"
       "(){}"
       "12"))
   (for-each (lambda (input)

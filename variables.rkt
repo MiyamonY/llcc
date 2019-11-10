@@ -10,7 +10,7 @@
   (raise-user-error
    'variables-error msg))
 
-(struct variable (name type offset)
+(struct variable (name type offset size)
   #:transparent)
 
 (define offset 0)
@@ -27,10 +27,10 @@
   (hash-ref variables name
             (lambda () (variables-error (format "variable: ~a is not found in ~a" name variables)))))
 
-(define (assign-variable variables name type)
+(define (assign-variable variables name type [size 0])
   (when (hash-has-key? variables name)
     (variables-error (format "variable: ~a is found in ~a" name variables)))
-  (hash-set! variables name (variable name type (new-offset))))
+  (hash-set! variables name (variable name type (new-offset) size)))
 
 (define (has-variable? variables name)
   (hash-has-key? variables name))

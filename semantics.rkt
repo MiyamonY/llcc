@@ -109,9 +109,9 @@
   (require rackunit)
 
   (define variables
-    (make-hash `(("x" . ,(variable "x" int 8))
-                 ("y" . ,(variable "y" (pointer-of (pointer-of int)) 16))
-                 ("z" . ,(variable "z" (pointer-of int) 24)))))
+    (make-hash `(("x" . ,(variable "x" int 8 0))
+                 ("y" . ,(variable "y" (pointer-of (pointer-of int)) 16 0))
+                 ("z" . ,(variable "z" (pointer-of int) 24 0)))))
 
   (define x (node-local-variable int "x"))
   (define y (node-local-variable (pointer-of (pointer-of int)) "y"))
