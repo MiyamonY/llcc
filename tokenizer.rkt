@@ -99,20 +99,22 @@
 (define (token-rcurly-brace? token)
   (and (token-curly-brace? token) (equal? (token-curly-brace-val token) "}")))
 
-(struct token-bracket token (val)
+(struct token-bracket token (bracket)
   #:transparent)
 
-(define (token-lbracket char-at)
-  (token-bracket char-at "["))
+(define-syntax (define-token-bracket stx)
+  (syntax-case stx ()
+    [(_ name bracket)
+     (with-syntax ([constructor (format-id #'name "token-~a" #'name)]
+                   [operator-token? (format-id #'name "token-~a?" #'name)])
+       #'(begin
+           (define (constructor char-at)
+             (token-bracket char-at bracket))
+           (define (operator-token? token)
+             (and (token-bracket? token) (equal? (token-bracket-bracket token) bracket)))))]))
 
-(define (token-rbracket char-at)
-  (token-bracket char-at "]"))
-
-(define (token-lbracket? token)
-  (and (token-bracket? token) (equal? (token-bracket-val token) "[")))
-
-(define (token-rbracket? token)
-  (and (token-bracket? token) (equal? (token-bracket-val token) "]")))
+(define-token-bracket lbracket "[")
+(define-token-bracket rbracket "]")
 
 (struct token-operator token (op)
   #:transparent)
