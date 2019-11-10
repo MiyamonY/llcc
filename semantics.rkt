@@ -49,20 +49,20 @@
                       [left node-left]
                       [right node-right])]
         [(node-addr? node)
-         (define unary0 (analyze variables (node-unary-operator-unary node)))
+         (define unary0 (analyze variables (node-unary-operator-node node)))
          (define ty (pointer-of (node-expr-type unary0)))
          (struct-copy node-unary-operator node
                       [type #:parent node-expr ty]
-                      [unary unary0])]
+                      [node unary0])]
         [(node-deref? node)
-         (define unary0 (analyze variables (node-unary-operator-unary node)))
+         (define unary0 (analyze variables (node-unary-operator-node node)))
          (unless (is-pointer? unary0)
            (semantics-error "dereferencing scalar type" unary0))
          (struct-copy node-unary-operator node
                       [type #:parent node-expr (base-type unary0)]
-                      [unary unary0])]
+                      [node unary0])]
         [(node-sizeof? node)
-         (define unary0 (analyze variables (node-unary-operator-unary node)))
+         (define unary0 (analyze variables (node-unary-operator-node node)))
          (node-number
           int
           (cond [(is-pointer? unary0) 8]

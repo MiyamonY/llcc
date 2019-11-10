@@ -86,7 +86,7 @@
       (cond [(null? tokens) (values unary0 tokens)]
             [(or (token-mul? (car tokens)) (token-div? (car tokens)))
              (define-values (unary1 remaining) (unary (cdr tokens)))
-             (mul-rec (new-node-operator (token-operator-op (car tokens)) unary0 unary1) remaining)]
+             (mul-rec (node-operator '() (token-operator-op (car tokens)) unary0 unary1) remaining)]
             [else (values unary0 tokens)]))
     (call-with-values (lambda () (unary tokens)) mul-rec))
 
@@ -97,7 +97,7 @@
             [(or (token-plus? (first tokens)) (token-minus? (first tokens)))
              (define operator (first tokens))
              (define-values (mul1 remaining) (mul (rest tokens)))
-             (add-rec (new-node-operator (token-operator-op operator) mul0 mul1) remaining)]
+             (add-rec (node-operator '() (token-operator-op operator) mul0 mul1) remaining)]
             [else (values mul0 tokens)]))
 
     (call-with-values (lambda () (mul tokens)) add-rec))
@@ -109,12 +109,12 @@
             [(or (token-lt? (first tokens)) (token-le? (first tokens)))
              (define operator (first tokens))
              (define-values (add1 remaining) (add (rest tokens)))
-             (relational-rec (new-node-operator (token-operator-op operator) add0 add1) remaining)]
+             (relational-rec (node-operator '() (token-operator-op operator) add0 add1) remaining)]
             [(or (token-gt? (first tokens)) (token-ge? (first tokens)))
              (define operator (first tokens))
              (define-values (add1 remaining) (add (rest tokens)))
-             (relational-rec (new-node-operator
-                              (reverse-compare (token-operator-op operator)) add1 add0) remaining)]
+             (relational-rec (node-operator '()
+                                            (reverse-compare (token-operator-op operator)) add1 add0) remaining)]
             [else (values add0 tokens)]))
 
     (call-with-values (lambda () (add tokens)) relational-rec))
@@ -303,15 +303,6 @@
 
 (module+ test
   (require rackunit)
-
-  (define (node-add left right)
-    (new-node-operator "+" left right))
-
-  (define (node-mul left right)
-    (new-node-operator "*" left right))
-
-  (define (node-div left right)
-    (new-node-operator "/" left right))
 
   (define (node-main body variables)
     (node-func-declaration "main" '() (node-block body) variables))
@@ -520,12 +511,11 @@ int main(){return a()+b();}")
                    (node-variable-declaration "z")
                    (new-node-assign
                     (new-node-local-variable "z")
-                    (new-node-operator
-                     "+"
+                    (node-add
                      (new-node-local-variable "x")
                      (new-node-local-variable "y")))
                    (node-return
-                    (new-node-operator "+" (new-node-local-variable "z") (new-node-number 3)))))
+                    (node-add (new-node-local-variable "z") (new-node-number 3)))))
                  (make-hash `(("x" . ,(variable-int "x" 8))
                               ("y" . ,(variable "y" (pointer-of (pointer-of int)) 16 0))
                               ("z" . ,(variable-int "z" 24))) ))
@@ -535,7 +525,7 @@ int main(){return a()+b();}")
                  (node-block
                   (list
                    (node-return
-                    (new-node-operator "*" (new-node-number 3) (new-node-local-variable "y")))))
+                    (node-mul (new-node-number 3) (new-node-local-variable "y")))))
                  (make-hash `(("y" . ,(variable "y" (pointer-of int) 8 0)))))
                 (node-func-declaration
                  "main"
@@ -543,7 +533,7 @@ int main(){return a()+b();}")
                  (node-block
                   (list
                    (node-return
-                    (new-node-operator "+" (new-node-func-call "a" '()) (new-node-func-call "b" '())))))
+                    (node-add (new-node-func-call "a" '()) (new-node-func-call "b" '())))))
                  (make-hash))))
 
   (define input-for-parser-error

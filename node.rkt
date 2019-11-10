@@ -2,6 +2,8 @@
 
 (provide (all-defined-out))
 
+(require (for-syntax racket/syntax))
+
 (struct node ()
   #:transparent)
 
@@ -56,71 +58,43 @@
 (struct node-operator node-expr (op left right)
   #:transparent)
 
-(define (new-node-operator op left right)
-  (node-operator '() op left right))
+(define-syntax (define-operator-node stx)
+  (syntax-case stx ()
+    [(_ name op)
+     (with-syntax ([constructor (format-id #'name "node-~a" #'name)]
+                   [operator-node? (format-id #'name "node-~a?" #'name)])
+       #'(begin
+           (define (constructor left right)
+             (node-operator '() op left right))
+           (define (operator-node? node)
+             (and (node-operator? node) (equal? (node-operator-op node) op)))))]))
 
-(struct node-unary-operator node-expr (op unary)
+(define-operator-node add "+")
+(define-operator-node sub "-")
+(define-operator-node mul "*")
+(define-operator-node div "/")
+(define-operator-node eq "==")
+(define-operator-node neq "!=")
+(define-operator-node lt "<")
+(define-operator-node le "<=")
+
+(struct node-unary-operator node-expr (op node)
   #:transparent)
 
-(define (new-node-unary-operator op unary)
-  (node-unary-operator '() op unary))
+(define-syntax (define-unary-operator-node stx)
+  (syntax-case stx ()
+    [(_ name op)
+     (with-syntax ([constructor (format-id #'name "node-~a" #'name)]
+                   [operator-node? (format-id #'name "node-~a?" #'name)])
+       #'(begin
+           (define (constructor node)
+             (node-unary-operator '() op node))
+           (define (operator-node? node)
+             (and (node-unary-operator? node) (equal? (node-unary-operator-op node) op)))))]))
 
-(define (node-sub left right)
-  (new-node-operator "-" left right))
-
-(define (node-eq left right)
-  (new-node-operator "==" left right))
-
-(define (node-neq left right)
-  (new-node-operator "!=" left right))
-
-(define (node-lt left right)
-  (new-node-operator "<" left right))
-
-(define (node-le left right)
-  (new-node-operator "<=" left right))
-
-(define (node-addr node)
-  (new-node-unary-operator "&" node))
-
-(define (node-deref node)
-  (new-node-unary-operator "*" node))
-
-(define (node-sizeof node)
-  (new-node-unary-operator "sizeof" node))
-
-(define (node-add? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "+")))
-
-(define (node-sub? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "-")))
-
-(define (node-mul? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "*")))
-
-(define (node-div? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "/")))
-
-(define (node-eq? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "==")))
-
-(define (node-neq? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "!=")))
-
-(define (node-lt? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "<")))
-
-(define (node-le? node)
-  (and (node-operator? node) (equal? (node-operator-op node) "<=")))
-
-(define (node-addr? node)
-  (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "&")))
-
-(define (node-deref? node)
-  (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "*")))
-
-(define (node-sizeof? node)
-  (and (node-unary-operator? node) (equal? (node-unary-operator-op node) "sizeof")))
+(define-unary-operator-node addr "&")
+(define-unary-operator-node deref "*")
+(define-unary-operator-node sizeof "sizeof")
 
 (define (reverse-compare op)
   (cond [(equal? op ">") "<"]

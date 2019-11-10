@@ -151,7 +151,7 @@
                (instruction-command (format "sub rax, ~a" offset))
                (instruction-command "push rax"))]
         [(node-deref? node)
-         (generate-node variables (node-unary-operator-unary node))]
+         (generate-node variables (node-unary-operator-node node))]
         [else
          (generate-error
           (format "left value must be local variable or deref operator: ~a" (object-name node)))]))
@@ -254,9 +254,9 @@
                             (generate-error (format "unexpected operator: ~a" (node-operator-op node)))])
                      (push-result))]
             [(node-addr? node)
-             (append (generate-left-value variables (node-unary-operator-unary node)))]
+             (append (generate-left-value variables (node-unary-operator-node node)))]
             [(node-deref? node)
-             (append (generate-node variables (node-unary-operator-unary node))
+             (append (generate-node variables (node-unary-operator-node node))
                      (deref))]
             [(node-func-declaration? node)
              (define name (node-func-declaration-name node))
