@@ -135,37 +135,37 @@
                (node-func-call int "test" '()))
 
   (test-equal? "node-binary-operator with same type"
-               (analyze variables (node-operator void "+"
-                                                 (node-number void 3)
-                                                 (node-number void 4)))
-               (node-operator int "+" (number 3) (number 4)))
+               (analyze variables (node-add
+                                   (node-number void 3)
+                                   (node-number void 4)))
+               (node-add (number 3) (number 4)))
 
   (test-equal? "node-binary-operator with different type1"
-               (analyze variables (node-operator void "+"
-                                                 (node-local-variable void "y")
-                                                 (node-number void 4)))
+               (analyze variables (node-add
+                                   (node-local-variable void "y")
+                                   (node-number void 4)))
                (node-operator (pointer-of (pointer-of int)) "+" y (number 4)))
 
   (test-equal? "node-binary-operator with different type2"
-               (analyze variables (node-operator void "-"
-                                                 (node-number void 4)
-                                                 (node-local-variable void "y")))
+               (analyze variables (node-sub
+                                   (node-number void 4)
+                                   (node-local-variable void "y")))
                (node-operator (pointer-of (pointer-of int)) "-" (number 4) y))
 
   (test-equal? "node-addr"
-               (analyze variables (node-unary-operator void "&" (node-number void 3)))
+               (analyze variables (node-addr (node-number void 3)))
                (node-unary-operator (pointer-of int) "&" (number 3)))
 
   (test-equal? "node-deref"
-               (analyze variables (node-unary-operator void "*" (node-local-variable void "y")))
+               (analyze variables (node-deref (node-local-variable void "y")))
                (node-unary-operator (pointer-of int) "*" y))
 
   (test-equal? "node-sizeof int"
-               (analyze variables (node-unary-operator void "sizeof" (node-local-variable void "x")))
+               (analyze variables (node-sizeof (node-local-variable void "x")))
                (node-number int 8))
 
   (test-equal? "node-sizeof pointer"
-               (analyze variables (node-unary-operator void "sizeof" (node-local-variable void "y")))
+               (analyze variables (node-sizeof (node-local-variable void "y")))
                (node-number int 8))
 
   (test-equal? "node-func-call"
@@ -175,9 +175,9 @@
   (define tests
     (list (node-assign void (node-number void 3)
                        (node-local-variable void "y"))
-          (node-unary-operator void "*" (node-number void 3))
-          (node-operator void "*" (node-local-variable void "y")
-                         (node-local-variable void "z"))))
+          (node-deref (node-number void 3))
+          (node-mul (node-local-variable void "y")
+                    (node-local-variable void "z"))))
 
   (for-each
    (lambda (test) (test-exn "semantics error"
