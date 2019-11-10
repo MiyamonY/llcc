@@ -65,8 +65,8 @@
       (parse-error input (string-length input) "expression ends unexpectedly"))
 
     (define unary-operator (first tokens))
-    (cond [(token-plus? unary-operator) (term (rest tokens))]
-          [(token-minus? unary-operator)
+    (cond [(token-add? unary-operator) (term (rest tokens))]
+          [(token-sub? unary-operator)
            (define-values (term0 remaining) (term (rest tokens)))
            (values (node-sub (new-node-number 0) term0) remaining)]
           [(token-addr? unary-operator)
@@ -94,7 +94,7 @@
   (define (add tokens)
     (define (add-rec mul0 tokens)
       (cond [(null? tokens) (values mul0 tokens)]
-            [(or (token-plus? (first tokens)) (token-minus? (first tokens)))
+            [(or (token-add? (first tokens)) (token-sub? (first tokens)))
              (define operator (first tokens))
              (define-values (mul1 remaining) (mul (rest tokens)))
              (add-rec (node-operator '() (token-operator-op operator) mul0 mul1) remaining)]

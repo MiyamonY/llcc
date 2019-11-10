@@ -4,8 +4,8 @@
  tokenize
  token-char-at
  token-operator-op
- token-plus?
- token-minus?
+ token-add?
+ token-sub?
  token-mul?
  token-div?
  token-addr?
@@ -36,6 +36,8 @@
  token-number?
  token-number-num
  token-sizeof?)
+
+(require (for-syntax racket/syntax))
 
 (struct token (char-at)
   #:transparent)
@@ -68,9 +70,6 @@
   #:transparent)
 
 (struct token-paren token (val)
-  #:transparent)
-
-(struct token-type token (type)
   #:transparent)
 
 (define (token-lparen char-at)
@@ -118,83 +117,49 @@
 (struct token-operator token (op)
   #:transparent)
 
-(define (token-eq char-at)
-  (token-operator char-at "=="))
+(define-syntax (define-token-operator stx)
+  (syntax-case stx ()
+    [(_ name op)
+     (with-syntax ([constructor (format-id #'name "token-~a" #'name)]
+                   [operator-token? (format-id #'name "token-~a?" #'name)])
+       #'(begin
+           (define (constructor char-at)
+             (token-operator char-at op))
+           (define (operator-token? token)
+             (and (token-operator? token) (equal? (token-operator-op token) op)))))]))
 
-(define (token-neq char-at)
-  (token-operator char-at "!="))
-
-(define (token-lt char-at)
-  (token-operator char-at "<" ))
-
-(define (token-le char-at)
-  (token-operator char-at "<="))
-
-(define (token-gt char-at)
-  (token-operator char-at ">"))
-
-(define (token-ge char-at)
-  (token-operator char-at ">="))
-
-(define (token-assign char-at)
-  (token-operator char-at "="))
-
-(define (token-addr char-at)
-  (token-operator char-at "&"))
-
-(define (token-sizeof char-at)
-  (token-operator char-at "sizeof"))
-
-(define (token-plus? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "+")))
-
-(define (token-add? token)
-  (token-plus? token))
-
-(define (token-minus? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "-")))
-
-(define (token-mul? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "*")))
-
-(define (token-div? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "/")))
-
-(define (token-eq? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "==")))
-
-(define (token-neq? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "!=")))
-
-(define (token-lt? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "<")))
-
-(define (token-le? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "<=")))
-
-(define (token-gt? token)
-  (and (token-operator? token) (equal? (token-operator-op token) ">")))
-
-(define (token-ge? token)
-  (and (token-operator? token) (equal? (token-operator-op token) ">=")))
-
-(define (token-assign? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "=")))
-
-(define (token-addr? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "&")))
+(define-token-operator add "+")
+(define-token-operator sub "-")
+(define-token-operator mul "*")
+(define-token-operator div "/")
+(define-token-operator eq "==")
+(define-token-operator neq "!=")
+(define-token-operator lt "<")
+(define-token-operator le "<=")
+(define-token-operator gt ">")
+(define-token-operator ge ">=")
+(define-token-operator assign "=")
+(define-token-operator sizeof "sizeof")
+(define-token-operator addr "&")
 
 (define (token-deref? token)
   (token-mul? token))
 
-(define (token-sizeof? token)
-  (and (token-operator? token) (equal? (token-operator-op token) "sizeof")))
+(struct token-type token (type)
+  #:transparent)
 
-(define (token-int char-at)
-  (token-type char-at "int"))
+(define-syntax (define-token-type stx)
+  (syntax-case stx ()
+    [(_ name type)
+     (with-syntax ([constructor (format-id #'name "token-~a" #'name)]
+                   [operator-token? (format-id #'name "token-~a?" #'name)])
+       #'(begin
+           (define (constructor char-at)
+             (token-type char-at type))
+           (define (operator-token? token)
+             (and (token-type? token) (equal? (token-type-type token) type)))))]))
 
-(define (token-int? token)
-  (and (token-type? token) (equal? (token-type-type token) "int")))
+(define-token-type int "int")
 
 (define (take-while lst f)
   (cond
