@@ -6,7 +6,9 @@
  int
  is-int?
  pointer-of
+ array-of
  is-pointer?
+ is-array?
  type-of
  base-type
  same-type?)
@@ -18,6 +20,9 @@
 
 (define (base-type node)
   (type-base (node-expr-type node)))
+
+(define (array-of base)
+  (type 'array base))
 
 (define (pointer-of base)
   (type 'pointer base))
@@ -32,6 +37,9 @@
 
 (define (is-pointer? type-or-node)
   (equal? (type-of type-or-node) 'pointer))
+
+(define (is-array? type-or-node)
+  (equal? (type-of type-or-node) 'array))
 
 (define (same-type? node-x node-y)
   (equal? (type-of node-x) (type-of node-y)))

@@ -87,5 +87,6 @@ try 11  'int main(){int x; int y; int z; int *w; z = 11; w = &x-2; return *w;}'
 try 24  'int main(){int x; return 3 * sizeof x;}'
 try 8   'int main(){int *x; return sizeof (3+x);}'
 try 8   'int main(){return sizeof(sizeof(3));}'
-try 3  'int main(){int x[10];  return 3;}'
+try 3   'int main(){int x[10];  return 3;}'
+try 10  'int main(){int x[10]; *x = 1; return *x;}'
 echo OK

@@ -111,10 +111,13 @@
   (define variables
     (make-hash `(("x" . ,(variable "x" int 8 0))
                  ("y" . ,(variable "y" (pointer-of (pointer-of int)) 16 0))
-                 ("z" . ,(variable "z" (pointer-of int) 24 0)))))
+                 ("z" . ,(variable "z" (pointer-of int) 24 0))
+                 ("a" . ,(variable "a" (array-of int) 32 10)))))
+
 
   (define x (node-local-variable int "x"))
   (define y (node-local-variable (pointer-of (pointer-of int)) "y"))
+  (define a (node-local-variable (array-of int) "a"))
 
   (define (number n) (node-number int n))
 
@@ -138,7 +141,7 @@
                (analyze variables (node-add
                                    (node-number void 3)
                                    (node-number void 4)))
-               (node-add (number 3) (number 4)))
+               (node-operator int "+" (number 3) (number 4)))
 
   (test-equal? "node-binary-operator with different type1"
                (analyze variables (node-add
@@ -171,6 +174,10 @@
   (test-equal? "node-func-call"
                (analyze variables (node-func-call void "test" (list (node-number void 3))))
                (node-func-call int "test" (list (number 3))))
+
+  (test-equal? "type conversion array type to pointer type"
+               (analyze variables (node-deref (node-local-variable void "a")))
+               (node-unary-operator int "*" a))
 
   (define tests
     (list (node-assign void (node-number void 3)

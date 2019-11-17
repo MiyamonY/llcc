@@ -480,6 +480,15 @@
                       (make-hash
                        `(("a" . ,(variable "a" int 8 10)))))))
 
+  (test-equal? "array declaration"
+               (parse-node "int main(){int a[10]; *a = 3;}")
+               (list (node-main
+                      (list
+                       (node-variable-declaration "a")
+                       (new-node-assign (node-deref (new-node-local-variable "a")) (new-node-number 3)))
+                      (make-hash
+                       `(("a" . ,(variable "a" int 8 10)))))))
+
   (test-equal? "blocks"
                (parse-node "int main(){int **a; {int b; int c; a=1; b=2; c=a+b;return c;}}")
                (list (node-main
