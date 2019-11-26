@@ -13,14 +13,17 @@
 (define (analyze variables node)
   (cond [(node-local-variable? node)
          (define name (node-local-variable-name node))
-         (define type (variable-type (find-variable variables name)))
+         (define var (find-variable variables name))
+         (define base-type (variable-type var))
+         (define type (if (> (variable-size var) 0) (pointer-of base-type) base-type))
          (struct-copy node-local-variable node [type #:parent node-expr type])]
         [(node-number? node)
          (struct-copy node-number node [type #:parent node-expr int])]
         [(node-assign? node)
          (define node-left (analyze variables (node-assign-left node)))
          (define node-right (analyze variables (node-assign-right node)))
-         (unless (same-type? node-left node-right)
+         (unless (or (same-type? node-left node-right)
+                     (and (pointer-or-array? node-left) (pointer-or-array? node-right)))
            (semantics-error (format "assign different type: ~a = ~a"
                                     (type-of node-left)
                                     (type-of node-right)) node))
@@ -32,12 +35,9 @@
          (define node-left (analyze variables (node-operator-left node)))
          (define node-right (analyze variables (node-operator-right node)))
          (define ty
-           (cond [(and (is-int? node-left) (is-int? node-right))
-                  (node-expr-type node-left)]
-                 [(and (is-int? node-left) (is-pointer? node-right))
-                  (node-expr-type node-right)]
-                 [(and (is-pointer? node-left) (is-int? node-right))
-                  (node-expr-type node-left)]
+           (cond [(and (is-int? node-left) (is-int? node-right)) (node-expr-type node-left)]
+                 [(and (is-int? node-left) (is-pointer? node-right)) (node-expr-type node-right)]
+                 [(and (is-pointer? node-left) (is-int? node-right)) (node-expr-type node-left)]
                  [else
                   (semantics-error (format "apply binary operator to different types: ~a ~a ~a"
                                            (type-of node-left)
@@ -56,7 +56,7 @@
                       [node unary0])]
         [(node-deref? node)
          (define unary0 (analyze variables (node-unary-operator-node node)))
-         (unless (is-pointer? unary0)
+         (unless (pointer-or-array? unary0)
            (semantics-error "dereferencing scalar type" unary0))
          (struct-copy node-unary-operator node
                       [type #:parent node-expr (base-type unary0)]
@@ -112,12 +112,13 @@
     (make-hash `(("x" . ,(variable "x" int 8 0))
                  ("y" . ,(variable "y" (pointer-of (pointer-of int)) 16 0))
                  ("z" . ,(variable "z" (pointer-of int) 24 0))
-                 ("a" . ,(variable "a" (array-of int) 32 10)))))
+                 ("a" . ,(variable "a" int 32 10)))))
 
 
   (define x (node-local-variable int "x"))
   (define y (node-local-variable (pointer-of (pointer-of int)) "y"))
-  (define a (node-local-variable (array-of int) "a"))
+  (define z (node-local-variable (pointer-of int) "z"))
+  (define a (node-local-variable (pointer-of int) "a"))
 
   (define (number n) (node-number int n))
 
@@ -125,9 +126,17 @@
                (analyze variables (node-number void 3))
                (number 3))
 
-  (test-equal? "node-local-variable"
+  (test-equal? "local variable: int"
                (analyze variables (node-local-variable void "x"))
                x)
+
+  (test-equal? "local variable: pointer int"
+               (analyze variables (node-local-variable void "z"))
+               z)
+
+  (test-equal? "local variable: array type"
+               (analyze variables (node-local-variable void "a"))
+               a)
 
   (test-equal? "node-assign"
                (analyze variables (node-assign void (node-local-variable void "x") (node-number void 4)))
@@ -175,9 +184,28 @@
                (analyze variables (node-func-call void "test" (list (node-number void 3))))
                (node-func-call int "test" (list (number 3))))
 
-  (test-equal? "type conversion array type to pointer type"
+  (test-equal? "type conversion array type to pointer type(deref)"
                (analyze variables (node-deref (node-local-variable void "a")))
                (node-unary-operator int "*" a))
+
+  (test-equal? "type conversion array type to pointer type(operator)"
+               (analyze variables (node-add (node-local-variable void "a")
+                                            (node-number void 3)))
+               (node-operator (pointer-of int) "+"
+                              (node-local-variable (pointer-of int) "a")
+                              (node-number int 3)))
+
+  (test-equal? "type conversion array type to pointer type(assign pointer = array)"
+               (analyze variables (node-assign void
+                                               (node-local-variable void "z")
+                                               (node-local-variable void "a")))
+               (node-assign (pointer-of int) z a))
+
+  (test-equal? "type conversion array type to pointer type(assing array = pointer)"
+               (analyze variables (node-assign void
+                                               (node-local-variable void "a")
+                                               (node-local-variable void "z")))
+               (node-assign (pointer-of int) a z))
 
   (define tests
     (list (node-assign void (node-number void 3)

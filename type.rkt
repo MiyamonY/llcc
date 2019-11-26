@@ -9,6 +9,7 @@
  array-of
  is-pointer?
  is-array?
+ pointer-or-array?
  type-of
  base-type
  same-type?)
@@ -40,6 +41,9 @@
 
 (define (is-array? type-or-node)
   (equal? (type-of type-or-node) 'array))
+
+(define (pointer-or-array? type-or-node)
+  (or (is-pointer? type-or-node) (is-array? type-or-node)))
 
 (define (same-type? node-x node-y)
   (equal? (type-of node-x) (type-of node-y)))

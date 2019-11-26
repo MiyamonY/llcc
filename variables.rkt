@@ -16,8 +16,9 @@
 (define offset 0)
 
 (define (new-offset)
+  (define o  offset)
   (set! offset (+ offset 8))
-  offset)
+  o)
 
 (define (make-variables)
   (set! offset 0)
