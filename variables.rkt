@@ -4,6 +4,7 @@
  (struct-out variable)
  make-variables
  assign-variable
+ variable-amount
  find-variable)
 
 (define (variables-error msg)
@@ -16,9 +17,8 @@
 (define offset 0)
 
 (define (new-offset)
-  (define o  offset)
   (set! offset (+ offset 8))
-  o)
+  offset)
 
 (define (make-variables)
   (set! offset 0)
@@ -32,6 +32,13 @@
   (when (hash-has-key? variables name)
     (variables-error (format "variable: ~a is found in ~a" name variables)))
   (hash-set! variables name (variable name type (new-offset) size)))
+
+(define (variable-amount variables)
+  (for/fold
+      ([sum 0])
+      ([(k v) variables])
+    (define size (variable-size v))
+    (+ sum (* 8 (if (= size 0) 1 size)))))
 
 (define (has-variable? variables name)
   (hash-has-key? variables name))

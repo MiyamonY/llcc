@@ -15,29 +15,36 @@
          (define name (node-local-variable-name node))
          (define var (find-variable variables name))
          (define base-type (variable-type var))
-         (define type (if (> (variable-size var) 0) (pointer-of base-type) base-type))
+         (define type (if (> (variable-size var) 0) (array-of base-type) base-type))
          (struct-copy node-local-variable node [type #:parent node-expr type])]
         [(node-number? node)
          (struct-copy node-number node [type #:parent node-expr int])]
         [(node-assign? node)
          (define node-left (analyze variables (node-assign-left node)))
          (define node-right (analyze variables (node-assign-right node)))
-         (unless (or (same-type? node-left node-right)
-                     (and (pointer-or-array? node-left) (pointer-or-array? node-right)))
-           (semantics-error (format "assign different type: ~a = ~a"
-                                    (type-of node-left)
-                                    (type-of node-right)) node))
+         (define type
+           (cond [(same-type? node-left node-right) (node-expr-type node-left)]
+                 [(pointer-or-array? node-left)
+                  (type-conversion-array-to-pointer (node-expr-type node-left))]
+                 [(pointer-or-array? node-right)
+                  (type-conversion-array-to-pointer (node-expr-type node-right))]
+                 [else
+                  (semantics-error (format "assign different type: ~a = ~a"
+                                           (type-of node-left)
+                                           (type-of node-right)) node)]))
          (struct-copy node-assign node
-                      [type #:parent node-expr (node-expr-type node-right)]
+                      [type #:parent node-expr type]
                       [left node-left]
                       [right node-right])]
         [(node-operator? node)
          (define node-left (analyze variables (node-operator-left node)))
          (define node-right (analyze variables (node-operator-right node)))
-         (define ty
+         (define type
            (cond [(and (is-int? node-left) (is-int? node-right)) (node-expr-type node-left)]
-                 [(and (is-int? node-left) (is-pointer? node-right)) (node-expr-type node-right)]
-                 [(and (is-pointer? node-left) (is-int? node-right)) (node-expr-type node-left)]
+                 [(and (is-int? node-left) (pointer-or-array? node-right))
+                  (type-conversion-array-to-pointer (node-expr-type node-right))]
+                 [(and (pointer-or-array? node-left) (is-int? node-right))
+                  (type-conversion-array-to-pointer (node-expr-type node-left))]
                  [else
                   (semantics-error (format "apply binary operator to different types: ~a ~a ~a"
                                            (type-of node-left)
@@ -45,7 +52,7 @@
                                            (type-of node-right))
                                    node)]))
          (struct-copy node-operator node
-                      [type #:parent node-expr ty]
+                      [type #:parent node-expr type]
                       [left node-left]
                       [right node-right])]
         [(node-addr? node)
@@ -118,7 +125,7 @@
   (define x (node-local-variable int "x"))
   (define y (node-local-variable (pointer-of (pointer-of int)) "y"))
   (define z (node-local-variable (pointer-of int) "z"))
-  (define a (node-local-variable (pointer-of int) "a"))
+  (define a (node-local-variable (array-of int) "a"))
 
   (define (number n) (node-number int n))
 
@@ -192,8 +199,7 @@
                (analyze variables (node-add (node-local-variable void "a")
                                             (node-number void 3)))
                (node-operator (pointer-of int) "+"
-                              (node-local-variable (pointer-of int) "a")
-                              (node-number int 3)))
+                              a (node-number int 3)))
 
   (test-equal? "type conversion array type to pointer type(assign pointer = array)"
                (analyze variables (node-assign void

@@ -12,7 +12,8 @@
  pointer-or-array?
  type-of
  base-type
- same-type?)
+ same-type?
+ type-conversion-array-to-pointer)
 
 (struct type (type base)
   #:transparent)
@@ -44,6 +45,11 @@
 
 (define (pointer-or-array? type-or-node)
   (or (is-pointer? type-or-node) (is-array? type-or-node)))
+
+(define (type-conversion-array-to-pointer type)
+  (if (is-array? type)
+      (pointer-of (type-base type))
+      type))
 
 (define (same-type? node-x node-y)
   (equal? (type-of node-x) (type-of node-y)))

@@ -188,7 +188,7 @@
                   (define size (token-number-num (first (drop remaining 2))))
                   (token-must-be token-rbracket? (drop remaining 3) input)
                   (token-must-be token-semicolon? (drop remaining 4) input)
-                  (assign-variable variables name ty size)
+                  (assign-variable variables name (array-of ty) size)
                   (values (node-variable-declaration name) (drop remaining 5))]
                  [else
                   (token-must-be token-semicolon? (rest remaining) input)
@@ -460,7 +460,7 @@
                                                    (new-node-local-variable "x")
                                                    (new-node-number 1)))
                                  (node-add (new-node-number 2) (new-node-number 3))))
-                      (make-hash `(("x" . ,(variable-int "x" 0)))))))
+                      (make-hash `(("x" . ,(variable-int "x" 8)))))))
 
   (test-equal? "for while"
                (parse-node "int main(){for (;;) 1;}")
@@ -478,7 +478,7 @@
                       (list
                        (node-variable-declaration "a"))
                       (make-hash
-                       `(("a" . ,(variable "a" int 0 10)))))))
+                       `(("a" . ,(variable "a" (array-of int) 8 10)))))))
 
   (test-equal? "array declaration"
                (parse-node "int main(){int a[10]; *a = 3;}")
@@ -487,7 +487,7 @@
                        (node-variable-declaration "a")
                        (new-node-assign (node-deref (new-node-local-variable "a")) (new-node-number 3)))
                       (make-hash
-                       `(("a" . ,(variable "a" int 0 10)))))))
+                       `(("a" . ,(variable "a" (array-of int) 8 10)))))))
 
   (test-equal? "blocks"
                (parse-node "int main(){int **a; {int b; int c; a=1; b=2; c=a+b;return c;}}")
@@ -504,9 +504,9 @@
                                                                (new-node-local-variable "b")))
                                     (node-return (new-node-local-variable "c")))))
                       (make-hash
-                       `(("a" . ,(variable "a" (pointer-of (pointer-of int)) 0 0))
-                         ("b" . ,(variable-int "b" 8))
-                         ("c" . ,(variable-int "c" 16)))))))
+                       `(("a" . ,(variable "a" (pointer-of (pointer-of int)) 8 0))
+                         ("b" . ,(variable-int "b" 16))
+                         ("c" . ,(variable-int "c" 24)))))))
 
   (test-equal? "function declarations"
                (parse-node "int a(int x, int **y){int z; z = x + y; return z+3;} int b(int *y){return 3*y;}
@@ -525,9 +525,9 @@ int main(){return a()+b();}")
                      (new-node-local-variable "y")))
                    (node-return
                     (node-add (new-node-local-variable "z") (new-node-number 3)))))
-                 (make-hash `(("x" . ,(variable-int "x" 0))
-                              ("y" . ,(variable "y" (pointer-of (pointer-of int)) 8 0))
-                              ("z" . ,(variable-int "z" 16))) ))
+                 (make-hash `(("x" . ,(variable-int "x" 8))
+                              ("y" . ,(variable "y" (pointer-of (pointer-of int)) 16 0))
+                              ("z" . ,(variable-int "z" 24))) ))
                 (node-func-declaration
                  "b"
                  (list (new-node-local-variable "y"))
@@ -535,7 +535,7 @@ int main(){return a()+b();}")
                   (list
                    (node-return
                     (node-mul (new-node-number 3) (new-node-local-variable "y")))))
-                 (make-hash `(("y" . ,(variable "y" (pointer-of int) 0 0)))))
+                 (make-hash `(("y" . ,(variable "y" (pointer-of int) 8 0)))))
                 (node-func-declaration
                  "main"
                  '()

@@ -17,6 +17,9 @@
 (struct instruction-label instruction (label)
   #:transparent)
 
+(struct comment instruction (message)
+  #:transparent)
+
 (define (format-instructions instructions)
   (map (lambda (instruction)
          (cond
@@ -24,6 +27,8 @@
             (instruction-label-label instruction)]
            [(instruction-command? instruction)
             (format "\t~a" (instruction-command-command instruction))]
+           [(comment? instruction)
+            (format "# ~a" (comment-message instruction))]
            [else
             (generate-error (format "undefined type: ~a@~a" instruction instructions))]))
        instructions))
@@ -117,10 +122,13 @@
 (define (generate-jump label)
   (list (instruction-command (format "jmp ~a" label))))
 
-(define (generate-load-from-local-variable)
-  (list (instruction-command "pop rax")
-        (instruction-command "mov rax, [rax]")
-        (instruction-command "push rax")))
+(define (generate-load-from-local-variable variables var)
+  (if (is-array? (variable-type (find-variable variables var)))
+      (list (instruction-command "pop rax")
+            (instruction-command "push rax"))
+      (list (instruction-command "pop rax")
+            (instruction-command "mov rax, [rax]")
+            (instruction-command "push rax"))))
 
 (define (generate-store-to-local-variable)
   (list (instruction-command "pop rdi")
@@ -151,7 +159,8 @@
                (instruction-command (format "sub rax, ~a" offset))
                (instruction-command "push rax"))]
         [(node-deref? node)
-         (generate-node variables (node-unary-operator-node node))]
+         (append (list (comment "node left value"))
+                 (generate-node variables (node-unary-operator-node node)))]
         [else
          (generate-error
           (format "left value must be local variable or deref operator: ~a" (object-name node)))]))
@@ -169,7 +178,7 @@
       (cond [(node-number? node) (push (node-number-val node))]
             [(node-local-variable? node)
              (append (generate-left-value variables node)
-                     (generate-load-from-local-variable))]
+                     (generate-load-from-local-variable variables (node-local-variable-name node)))]
             [(node-assign? node)
              (append (generate-left-value variables (node-assign-left node))
                      (generate-node variables (node-assign-right node))
@@ -225,8 +234,9 @@
             [(node-operator? node)
              (define left (node-operator-left node))
              (define right (node-operator-right node))
-             (append (generate-node variables left)
-                     (if (and (is-int? left) (is-pointer? right))
+             (append (list (comment "node operator"))
+                     (generate-node variables left)
+                     (if (and (is-int? left) (pointer-or-array? right))
                          (append
                           (push (if (is-pointer? (base-type right)) 8 8))
                           (pop-operands)
@@ -234,7 +244,7 @@
                           (push-result))
                          '())
                      (generate-node variables right)
-                     (if (and (is-pointer? left) (is-int? right))
+                     (if (and (pointer-or-array? left) (is-int? right))
                          (append
                           (push (if (is-pointer? (base-type left)) 8 8))
                           (pop-operands)
