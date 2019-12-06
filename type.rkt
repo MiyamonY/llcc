@@ -4,11 +4,11 @@
 
 (provide
  int
- is-int?
+ int?
  pointer-of
  array-of
- is-pointer?
- is-array?
+ pointer?
+ array?
  pointer-or-array?
  type-of
  base-type
@@ -34,20 +34,20 @@
       (type-type type-or-node)
       (type-type (node-expr-type type-or-node))))
 
-(define (is-int? type-or-node)
+(define (int? type-or-node)
   (equal? (type-of type-or-node) 'int))
 
-(define (is-pointer? type-or-node)
+(define (pointer? type-or-node)
   (equal? (type-of type-or-node) 'pointer))
 
-(define (is-array? type-or-node)
+(define (array? type-or-node)
   (equal? (type-of type-or-node) 'array))
 
 (define (pointer-or-array? type-or-node)
-  (or (is-pointer? type-or-node) (is-array? type-or-node)))
+  (or (pointer? type-or-node) (array? type-or-node)))
 
 (define (type-conversion-array-to-pointer type)
-  (if (is-array? type)
+  (if (array? type)
       (pointer-of (type-base type))
       type))
 

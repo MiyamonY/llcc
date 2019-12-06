@@ -40,10 +40,10 @@
          (define node-left (analyze variables (node-operator-left node)))
          (define node-right (analyze variables (node-operator-right node)))
          (define type
-           (cond [(and (is-int? node-left) (is-int? node-right)) (node-expr-type node-left)]
-                 [(and (is-int? node-left) (pointer-or-array? node-right))
+           (cond [(and (int? node-left) (int? node-right)) (node-expr-type node-left)]
+                 [(and (int? node-left) (pointer-or-array? node-right))
                   (type-conversion-array-to-pointer (node-expr-type node-right))]
-                 [(and (pointer-or-array? node-left) (is-int? node-right))
+                 [(and (pointer-or-array? node-left) (int? node-right))
                   (type-conversion-array-to-pointer (node-expr-type node-left))]
                  [else
                   (semantics-error (format "apply binary operator to different types: ~a ~a ~a"
@@ -72,8 +72,8 @@
          (define unary0 (analyze variables (node-unary-operator-node node)))
          (node-number
           int
-          (cond [(is-pointer? unary0) 8]
-                [(is-int? unary0) 8]
+          (cond [(pointer? unary0) 8]
+                [(int? unary0) 8]
                 [else (semantics-error (format "unkown type:~a" (type-of unary0)) unary0)]))]
         [(node-if? node)
          (struct-copy node-if node
