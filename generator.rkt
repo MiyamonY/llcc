@@ -11,10 +11,10 @@
 (struct instruction ()
   #:transparent)
 
-(struct instruction-command instruction (command)
+(struct command instruction (operation)
   #:transparent)
 
-(struct instruction-label instruction (label)
+(struct label instruction (name)
   #:transparent)
 
 (struct comment instruction (message)
@@ -23,10 +23,10 @@
 (define (format-instructions instructions)
   (map (lambda (instruction)
          (cond
-           [(instruction-label? instruction)
-            (instruction-label-label instruction)]
-           [(instruction-command? instruction)
-            (format "\t~a" (instruction-command-command instruction))]
+           [(label? instruction)
+            (label-name instruction)]
+           [(command? instruction)
+            (format "\t~a" (command-operation instruction))]
            [(comment? instruction)
             (format "# ~a" (comment-message instruction))]
            [else
@@ -38,12 +38,12 @@
    'generate-error "~a\n" msg))
 
 (define (push num)
-  (list (instruction-command (format "push ~a" num))))
+  (list (command (format "push ~a" num))))
 
 (define (reserve-local-variables variables)
-  (list (instruction-command "push rbp")
-        (instruction-command "mov rbp, rsp")
-        (instruction-command (format "sub rsp, ~a" (* 8 (hash-count variables))))))
+  (list (command "push rbp")
+        (command "mov rbp, rsp")
+        (command (format "sub rsp, ~a" (* 8 (hash-count variables))))))
 
 (define (transfer-arguments args variables)
   (define registers '("r9" "r8" "rcx" "rdx" "rsi" "rdi"))
@@ -51,103 +51,103 @@
    (lambda (arg reg)
      (define name (node-local-variable-name arg))
      (define offset (variable-offset (find-variable variables name)))
-     (list (instruction-command "mov rax, rbp")
-           (instruction-command (format "sub rax, ~a" offset))
-           (instruction-command (format "mov [rax], ~a" reg))))
+     (list (command "mov rax, rbp")
+           (command (format "sub rax, ~a" offset))
+           (command (format "mov [rax], ~a" reg))))
    (reverse args)
    (take-right registers (length args))))
 
 (define (free-local-variables)
-  (list (instruction-command "mov rsp, rbp")
-        (instruction-command "pop rbp")))
+  (list (command "mov rsp, rbp")
+        (command "pop rbp")))
 
 (define (push-result)
-  (list (instruction-command "push rax")))
+  (list (command "push rax")))
 
 (define (pop-result)
-  (list (instruction-command "pop rax")))
+  (list (command "pop rax")))
 
 (define (pop-operands)
-  (list (instruction-command "pop rdi")
-        (instruction-command "pop rax")))
+  (list (command "pop rdi")
+        (command "pop rax")))
 
 (define (return)
-  (list (instruction-command "ret")))
+  (list (command "ret")))
 
 (define (deref)
-  (list (instruction-command "pop rax")
-        (instruction-command "mov rax, [rax]")
-        (instruction-command "push rax")))
+  (list (command "pop rax")
+        (command "mov rax, [rax]")
+        (command "push rax")))
 
 (define (generate-add)
-  (list (instruction-command "add rax, rdi")))
+  (list (command "add rax, rdi")))
 
 (define (generate-sub)
-  (list (instruction-command "sub rax, rdi")))
+  (list (command "sub rax, rdi")))
 
 (define (generate-mul)
-  (list (instruction-command "imul rax, rdi")))
+  (list (command "imul rax, rdi")))
 
 (define (generate-div)
-  (list (instruction-command "cqo")
-        (instruction-command "div rdi")))
+  (list (command "cqo")
+        (command "div rdi")))
 
 (define (generate-eq)
-  (list (instruction-command "cmp rax, rdi")
-        (instruction-command "sete al")
-        (instruction-command "movzb rax, al")))
+  (list (command "cmp rax, rdi")
+        (command "sete al")
+        (command "movzb rax, al")))
 
 (define (generate-neq)
-  (list (instruction-command "cmp rax, rdi")
-        (instruction-command "setne al")
-        (instruction-command "movzb rax, al")))
+  (list (command "cmp rax, rdi")
+        (command "setne al")
+        (command "movzb rax, al")))
 
 (define (generate-lt)
-  (list (instruction-command "cmp rax, rdi")
-        (instruction-command "setl al")
-        (instruction-command "movzb rax, al")))
+  (list (command "cmp rax, rdi")
+        (command "setl al")
+        (command "movzb rax, al")))
 
 (define (generate-le)
-  (list (instruction-command "cmp rax, rdi")
-        (instruction-command "setle al")
-        (instruction-command "movzb rax, al")))
+  (list (command "cmp rax, rdi")
+        (command "setle al")
+        (command "movzb rax, al")))
 
 (define (generate-equal-0)
-  (list (instruction-command  "pop rax")
-        (instruction-command  "cmp rax, 0")))
+  (list (command  "pop rax")
+        (command  "cmp rax, 0")))
 
-(define (generate-jump-if-equal label)
-  (list (instruction-command (format "je ~a" label))))
+(define (generate-jump-if-equal to)
+  (list (command (format "je ~a" to))))
 
-(define (generate-jump label)
-  (list (instruction-command (format "jmp ~a" label))))
+(define (generate-jump to)
+  (list (command (format "jmp ~a" to))))
 
 (define (generate-load-from-local-variable variables var)
   (if (array? (variable-type (find-variable variables var)))
-      (list (instruction-command "pop rax")
-            (instruction-command "push rax"))
-      (list (instruction-command "pop rax")
-            (instruction-command "mov rax, [rax]")
-            (instruction-command "push rax"))))
+      (list (command "pop rax")
+            (command "push rax"))
+      (list (command "pop rax")
+            (command "mov rax, [rax]")
+            (command "push rax"))))
 
 (define (generate-store-to-local-variable)
-  (list (instruction-command "pop rdi")
-        (instruction-command "pop rax")
-        (instruction-command "mov [rax],rdi")
-        (instruction-command "push rdi")))
+  (list (command "pop rdi")
+        (command "pop rax")
+        (command "mov [rax],rdi")
+        (command "push rdi")))
 
-(define (generate-label label)
-  (list (instruction-label (format "~a:" label))))
+(define (generate-label name)
+  (list (label (format "~a:" name))))
 
 (define (generate-func-call func)
-  (list (instruction-command (format "call ~a" func))
-        (instruction-command "push rax")))
+  (list (command (format "call ~a" func))
+        (command "push rax")))
 
 (define (generate-func-call-with-args func arg-num)
   (define registers '("r9" "r8" "rcx" "rdx" "rsi" "rdi"))
   (append (append-map (lambda (reg)
-                        (list (instruction-command "pop rax")
-                              (instruction-command (format "mov ~a, rax" reg))))
+                        (list (command "pop rax")
+                              (command (format "mov ~a, rax" reg))))
                       (take-right registers arg-num))
           (generate-func-call func)))
 
@@ -155,9 +155,9 @@
   (cond [(node-local-variable? node)
          (define name (node-local-variable-name node))
          (define offset (variable-offset (find-variable variables name)))
-         (list (instruction-command "mov rax, rbp")
-               (instruction-command (format "sub rax, ~a" offset))
-               (instruction-command "push rax"))]
+         (list (command "mov rax, rbp")
+               (command (format "sub rax, ~a" offset))
+               (command "push rax"))]
         [(node-deref? node)
          (append (list (comment "node left value"))
                  (generate-node variables (node-unary-operator-node node)))]
