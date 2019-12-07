@@ -22,282 +22,284 @@
 (define (reset-env)
   (set! variables (make-variables)))
 
-(define (parse input)
-
-  ;; term = num | ident ("(" (expr ("," expr)*) ? ")")? | "(" expr ")""
-  (define (term tokens)
-    (when (null? tokens)
-      (parse-error input (string-length input) "expression ends unexpectedly"))
-
-    (cond [(token-number? (first tokens))
-           (values (new-node-number (token-number-num (first tokens))) (rest tokens))]
-          [(token-identifier? (first tokens))
-           (define name (token-identifier-name (first tokens)))
-           (cond [(token-lparen? (cadr tokens))
-                  (define remaining (cddr tokens))
-                  (cond [(token-rparen? (car remaining))
-                         (values (new-node-func-call name '()) (cdr remaining))]
-                        [else
-                         (define (args-aux exprs tokens)
-                           (if (not (token-comma? (first tokens)))
-                               (values (reverse exprs) tokens)
-                               (let-values ([(expr0 remaining) (expr (cdr tokens))])
-                                 (args-aux (cons expr0 exprs)  remaining))))
-                         (define-values (expr0 remaining1) (expr remaining))
-                         (define-values (args remaining2) (args-aux (list expr0) remaining1))
-                         (token-must-be token-rparen? remaining2 input)
-                         (values (new-node-func-call name args) (cdr remaining2))])]
-                 [else
-                  (find-variable variables name)
-                  (values (new-node-local-variable name) (cdr tokens))])]
-          [(token-lparen? (first tokens))
-           (define-values (expr0 remaining) (expr (rest tokens)))
-           (token-must-be token-rparen? remaining input)
-           (values expr0 (cdr remaining))]
-          [else
-           (parse-error input (token-char-at (first tokens)) "token must be number or ( or identifier")]))
-
-  ;; unary = ("+" | "-")? term
-  ;;        | ("&" | "*") unary
-  ;;        | "sizeof" unary
-  (define (unary tokens)
-    (when (null? tokens)
-      (parse-error input (string-length input) "expression ends unexpectedly"))
-
-    (define unary-operator (first tokens))
-    (cond [(token-add? unary-operator) (term (rest tokens))]
-          [(token-sub? unary-operator)
-           (define-values (term0 remaining) (term (rest tokens)))
-           (values (node-sub (new-node-number 0) term0) remaining)]
-          [(token-addr? unary-operator)
-           (define-values (unary0 remaining) (unary (rest tokens)))
-           (values (node-addr unary0) remaining)]
-          [(token-deref? unary-operator)
-           (define-values (unary0 remaining) (unary (rest tokens)))
-           (values (node-deref unary0) remaining)]
-          [(token-sizeof? unary-operator)
-           (define-values (unary0 remaining) (unary (rest tokens)))
-           (values (node-sizeof unary0) remaining)]
-          [else (term tokens)]))
-
-  ;; mul = unary ("*" unary | "/" unary)*
-  (define (mul tokens)
-    (define (mul-rec unary0 tokens)
-      (cond [(null? tokens) (values unary0 tokens)]
-            [(or (token-mul? (car tokens)) (token-div? (car tokens)))
-             (define-values (unary1 remaining) (unary (cdr tokens)))
-             (mul-rec (node-operator '() (token-operator-op (car tokens)) unary0 unary1) remaining)]
-            [else (values unary0 tokens)]))
-    (call-with-values (lambda () (unary tokens)) mul-rec))
-
-  ;; add = mul ("+" mul | "-" mul)*
-  (define (add tokens)
-    (define (add-rec mul0 tokens)
-      (cond [(null? tokens) (values mul0 tokens)]
-            [(or (token-add? (first tokens)) (token-sub? (first tokens)))
-             (define operator (first tokens))
-             (define-values (mul1 remaining) (mul (rest tokens)))
-             (add-rec (node-operator '() (token-operator-op operator) mul0 mul1) remaining)]
-            [else (values mul0 tokens)]))
-
-    (call-with-values (lambda () (mul tokens)) add-rec))
-
-  ;; relational = add ("<" add | "<=" add | ">" add | ">=" add)*
-  (define (relational tokens)
-    (define (relational-rec add0 tokens)
-      (cond [(empty? tokens) (values add0 tokens)]
-            [(or (token-lt? (first tokens)) (token-le? (first tokens)))
-             (define operator (first tokens))
-             (define-values (add1 remaining) (add (rest tokens)))
-             (relational-rec (node-operator '() (token-operator-op operator) add0 add1) remaining)]
-            [(or (token-gt? (first tokens)) (token-ge? (first tokens)))
-             (define operator (first tokens))
-             (define-values (add1 remaining) (add (rest tokens)))
-             (relational-rec (node-operator '()
-                                            (reverse-compare (token-operator-op operator)) add1 add0) remaining)]
-            [else (values add0 tokens)]))
-
-    (call-with-values (lambda () (add tokens)) relational-rec))
-
-  ;; equality = relational ("==" relational | "!=" relational)*
-  (define (equality tokens)
-    (define (equality-rec rel0 tokens)
-      (cond [(empty? tokens) (values rel0 tokens)]
-            [(token-eq? (first tokens))
-             (define-values (rel1 remaining) (relational (rest tokens)))
-             (equality-rec (node-eq rel0 rel1) remaining)]
-            [(token-neq? (first tokens))
-             (define-values (rel1 remaining) (relational (rest tokens)))
-             (equality-rec (node-neq rel0 rel1) remaining)]
-            [else (values rel0 tokens)]))
-
-    (call-with-values (lambda () (relational tokens)) equality-rec))
-
-  ;; assign = equality ("=" assing)?
-  (define (assign tokens)
-    (define (assign-aux equ0 tokens)
-      (when (empty? tokens)
-        (parse-error input (string-length input) "assign ends unexpectedly"))
-
-      (cond [(token-assign? (first tokens))
-             (define-values (assign0 remaining) (assign (rest tokens)))
-             (values (new-node-assign equ0 assign0) remaining)]
+(define (star a continue?)
+  (lambda (tokens)
+    (define (rec nodes tokens)
+      (cond [(null? tokens) (values (reverse nodes) tokens)]
+            [(continue? (first tokens))
+             (define-values (node remaining) (a tokens))
+             (rec (cons node nodes) remaining)]
             [else
-             (values equ0 tokens)]))
+             (values (reverse nodes) tokens)]))
+    (rec '() tokens)))
 
-    (call-with-values (lambda () (equality tokens)) assign-aux))
+(define input "")
 
-  ;; expr = assign
-  (define (expr tokens)
-    (assign tokens))
+;; term = num | ident ("(" (expr ("," expr)*) ? ")")? | "(" expr ")""
+(define (term tokens)
+  (when (null? tokens)
+    (parse-error input (string-length input) "expression ends unexpectedly"))
 
-  (define (star a continue?)
-    (lambda (tokens)
-      (define (rec nodes tokens)
-        (cond [(null? tokens) (values (reverse nodes) tokens)]
-              [(continue? (first tokens))
-               (define-values (node remaining) (a tokens))
-               (rec (cons node nodes) remaining)]
-              [else
-               (values (reverse nodes) tokens)]))
-      (rec '() tokens)))
+  (cond [(token-number? (first tokens))
+         (values (new-node-number (token-number-num (first tokens))) (rest tokens))]
+        [(token-identifier? (first tokens))
+         (define name (token-identifier-name (first tokens)))
+         (cond [(token-lparen? (cadr tokens))
+                (define remaining (cddr tokens))
+                (cond [(token-rparen? (car remaining))
+                       (values (new-node-func-call name '()) (cdr remaining))]
+                      [else
+                       (define (args-aux exprs tokens)
+                         (if (not (token-comma? (first tokens)))
+                             (values (reverse exprs) tokens)
+                             (let-values ([(expr0 remaining) (expr (cdr tokens))])
+                               (args-aux (cons expr0 exprs)  remaining))))
+                       (define-values (expr0 remaining1) (expr remaining))
+                       (define-values (args remaining2) (args-aux (list expr0) remaining1))
+                       (token-must-be token-rparen? remaining2 input)
+                       (values (new-node-func-call name args) (cdr remaining2))])]
+               [else
+                (find-variable variables name)
+                (values (new-node-local-variable name) (cdr tokens))])]
+        [(token-lparen? (first tokens))
+         (define-values (expr0 remaining) (expr (rest tokens)))
+         (token-must-be token-rparen? remaining input)
+         (values expr0 (cdr remaining))]
+        [else
+         (parse-error input (token-char-at (first tokens)) "token must be number or ( or identifier")]))
 
-  ;; pointers =  ("*")*
-  (define (pointers base tokens)
-    (cond [(token-mul? (first tokens))
-           (pointers (pointer-of base) (rest tokens))]
+;; unary = ("+" | "-")? term
+;;        | ("&" | "*") unary
+;;        | "sizeof" unary
+(define (unary tokens)
+  (when (null? tokens)
+    (parse-error input (string-length input) "expression ends unexpectedly"))
+
+  (define unary-operator (first tokens))
+  (cond [(token-add? unary-operator) (term (rest tokens))]
+        [(token-sub? unary-operator)
+         (define-values (term0 remaining) (term (rest tokens)))
+         (values (node-sub (new-node-number 0) term0) remaining)]
+        [(token-addr? unary-operator)
+         (define-values (unary0 remaining) (unary (rest tokens)))
+         (values (node-addr unary0) remaining)]
+        [(token-deref? unary-operator)
+         (define-values (unary0 remaining) (unary (rest tokens)))
+         (values (node-deref unary0) remaining)]
+        [(token-sizeof? unary-operator)
+         (define-values (unary0 remaining) (unary (rest tokens)))
+         (values (node-sizeof unary0) remaining)]
+        [else (term tokens)]))
+
+;; mul = unary ("*" unary | "/" unary)*
+(define (mul tokens)
+  (define (mul-rec unary0 tokens)
+    (cond [(null? tokens) (values unary0 tokens)]
+          [(or (token-mul? (car tokens)) (token-div? (car tokens)))
+           (define-values (unary1 remaining) (unary (cdr tokens)))
+           (mul-rec (node-operator '() (token-operator-op (car tokens)) unary0 unary1) remaining)]
+          [else (values unary0 tokens)]))
+  (call-with-values (lambda () (unary tokens)) mul-rec))
+
+;; add = mul ("+" mul | "-" mul)*
+(define (add tokens)
+  (define (add-rec mul0 tokens)
+    (cond [(null? tokens) (values mul0 tokens)]
+          [(or (token-add? (first tokens)) (token-sub? (first tokens)))
+           (define operator (first tokens))
+           (define-values (mul1 remaining) (mul (rest tokens)))
+           (add-rec (node-operator '() (token-operator-op operator) mul0 mul1) remaining)]
+          [else (values mul0 tokens)]))
+
+  (call-with-values (lambda () (mul tokens)) add-rec))
+
+;; relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+(define (relational tokens)
+  (define (relational-rec add0 tokens)
+    (cond [(empty? tokens) (values add0 tokens)]
+          [(or (token-lt? (first tokens)) (token-le? (first tokens)))
+           (define operator (first tokens))
+           (define-values (add1 remaining) (add (rest tokens)))
+           (relational-rec (node-operator '() (token-operator-op operator) add0 add1) remaining)]
+          [(or (token-gt? (first tokens)) (token-ge? (first tokens)))
+           (define operator (first tokens))
+           (define-values (add1 remaining) (add (rest tokens)))
+           (relational-rec (node-operator '()
+                                          (reverse-compare (token-operator-op operator)) add1 add0) remaining)]
+          [else (values add0 tokens)]))
+
+  (call-with-values (lambda () (add tokens)) relational-rec))
+
+;; equality = relational ("==" relational | "!=" relational)*
+(define (equality tokens)
+  (define (equality-rec rel0 tokens)
+    (cond [(empty? tokens) (values rel0 tokens)]
+          [(token-eq? (first tokens))
+           (define-values (rel1 remaining) (relational (rest tokens)))
+           (equality-rec (node-eq rel0 rel1) remaining)]
+          [(token-neq? (first tokens))
+           (define-values (rel1 remaining) (relational (rest tokens)))
+           (equality-rec (node-neq rel0 rel1) remaining)]
+          [else (values rel0 tokens)]))
+
+  (call-with-values (lambda () (relational tokens)) equality-rec))
+
+;; assign = equality ("=" assing)?
+(define (assign tokens)
+  (define (assign-aux equ0 tokens)
+    (when (empty? tokens)
+      (parse-error input (string-length input) "assign ends unexpectedly"))
+
+    (cond [(token-assign? (first tokens))
+           (define-values (assign0 remaining) (assign (rest tokens)))
+           (values (new-node-assign equ0 assign0) remaining)]
           [else
-           (values base tokens)]))
+           (values equ0 tokens)]))
 
-  ;; stmt = expr ";"
-  ;;      | "int" pointers ident ("[" num "]")? ";"
-  ;;      | "return" expr ";"
-  ;;      | "if" "(" expr ")" stmt ("else" stmt)?
-  ;;      | "while" "(" expr ")" stmt
-  ;;      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
-  ;;      | "{" stmt* "}"
-  (define (stmt tokens)
-    (cond [(empty? tokens)
-           (parse-error input (string-length input) "stmt is empty")]
-          [(token-int? (first tokens))
-           (define-values (ty remaining) (pointers int (rest tokens)))
-           (token-must-be token-identifier? remaining input)
-           (define name (token-identifier-name (first remaining)))
-           (cond [(token-lbracket? (first (rest remaining)))
-                  (token-must-be token-number? (drop remaining 2)  input)
-                  (define size (token-number-num (first (drop remaining 2))))
-                  (token-must-be token-rbracket? (drop remaining 3) input)
-                  (token-must-be token-semicolon? (drop remaining 4) input)
-                  (assign-variable variables name (array-of ty) size)
-                  (values (node-variable-declaration name) (drop remaining 5))]
-                 [else
-                  (token-must-be token-semicolon? (rest remaining) input)
-                  (assign-variable variables name ty)
-                  (values (node-variable-declaration name) (drop remaining 2))])]
-          [(token-return? (first tokens))
-           (define-values (expr0 remaining) (expr (rest tokens)))
-           (token-must-be token-semicolon? remaining input)
-           (values (node-return expr0) (rest remaining))]
-          [(token-if? (first tokens))
-           (token-must-be token-lparen? (rest tokens) input)
-           (define-values (conditional remaining0) (expr (rest (rest tokens))))
-           (token-must-be token-rparen? remaining0 input)
-           (define-values (true-clause remaining1) (stmt (rest remaining0)))
-           (cond [(null? remaining1)
-                  (values (node-if conditional true-clause null) remaining1)]
-                 [(token-else? (first remaining1))
-                  (define-values (false-clause remaining2) (stmt (rest remaining1)))
-                  (values (node-if conditional true-clause false-clause)  remaining2)]
-                 [else
-                  (values (node-if conditional true-clause null) remaining1)])]
-          [(token-while? (first tokens))
-           (token-must-be token-lparen? (rest tokens) input)
-           (define-values (conditional remaining) (expr (rest (rest tokens))))
-           (token-must-be token-rparen? remaining input)
-           (define-values (body remaining0) (stmt (rest remaining)))
-           (values (node-while conditional body) remaining0)]
-          [(token-for? (first tokens))
-           (token-must-be token-lparen? (rest tokens) input)
-           (define-values (init remaining0)
-             (if (token-semicolon? (caddr tokens))
-                 (values null (cddr tokens))
-                 (expr (cddr tokens))))
-           (token-must-be token-semicolon? remaining0 input)
+  (call-with-values (lambda () (equality tokens)) assign-aux))
 
-           (define-values (conditional remaining1)
-             (if (token-semicolon? (cadr remaining0))
-                 (values null (rest remaining0))
-                 (expr (rest remaining0))))
-           (token-must-be token-semicolon? remaining1 input)
+;; expr = assign
+(define (expr tokens)
+  (assign tokens))
 
-           (define-values (next remaining2)
-             (if (token-rparen? (cadr remaining1))
-                 (values null (rest remaining1))
-                 (expr (rest remaining1))))
-           (token-must-be token-rparen? remaining2 input)
+;; pointers =  ("*")*
+(define (pointers base tokens)
+  (cond [(token-mul? (first tokens))
+         (pointers (pointer-of base) (rest tokens))]
+        [else
+         (values base tokens)]))
 
-           (define-values (body remaining3) (stmt (rest remaining2)))
-           (values (node-for init conditional next body) remaining3)]
-          [(token-lcurly-brace? (first tokens))
-           (define stmt* (star stmt (compose not token-rcurly-brace?)))
-           (define-values (stmts remaining) (stmt* (rest tokens)))
-           (token-must-be token-rcurly-brace? remaining input)
-           (values (node-block stmts) (rest remaining))]
-          [else
-           (define-values (expr0 remaining) (expr tokens))
-           (token-must-be token-semicolon? remaining input)
-           (values expr0 (rest remaining))]))
+;; stmt = expr ";"
+;;      | "int" pointers ident ("[" num "]")? ";"
+;;      | "return" expr ";"
+;;      | "if" "(" expr ")" stmt ("else" stmt)?
+;;      | "while" "(" expr ")" stmt
+;;      | "for" "(" expr? ";" expr? ";" expr? ")" stmt
+;;      | "{" stmt* "}"
+(define (stmt tokens)
+  (cond [(empty? tokens)
+         (parse-error input (string-length input) "stmt is empty")]
+        [(token-int? (first tokens))
+         (define-values (ty remaining) (pointers int (rest tokens)))
+         (token-must-be token-identifier? remaining input)
+         (define name (token-identifier-name (first remaining)))
+         (cond [(token-lbracket? (first (rest remaining)))
+                (token-must-be token-number? (drop remaining 2)  input)
+                (define size (token-number-num (first (drop remaining 2))))
+                (token-must-be token-rbracket? (drop remaining 3) input)
+                (token-must-be token-semicolon? (drop remaining 4) input)
+                (assign-variable variables name (array-of ty) size)
+                (values (node-variable-declaration name) (drop remaining 5))]
+               [else
+                (token-must-be token-semicolon? (rest remaining) input)
+                (assign-variable variables name ty)
+                (values (node-variable-declaration name) (drop remaining 2))])]
+        [(token-return? (first tokens))
+         (define-values (expr0 remaining) (expr (rest tokens)))
+         (token-must-be token-semicolon? remaining input)
+         (values (node-return expr0) (rest remaining))]
+        [(token-if? (first tokens))
+         (token-must-be token-lparen? (rest tokens) input)
+         (define-values (conditional remaining0) (expr (rest (rest tokens))))
+         (token-must-be token-rparen? remaining0 input)
+         (define-values (true-clause remaining1) (stmt (rest remaining0)))
+         (cond [(null? remaining1)
+                (values (node-if conditional true-clause null) remaining1)]
+               [(token-else? (first remaining1))
+                (define-values (false-clause remaining2) (stmt (rest remaining1)))
+                (values (node-if conditional true-clause false-clause)  remaining2)]
+               [else
+                (values (node-if conditional true-clause null) remaining1)])]
+        [(token-while? (first tokens))
+         (token-must-be token-lparen? (rest tokens) input)
+         (define-values (conditional remaining) (expr (rest (rest tokens))))
+         (token-must-be token-rparen? remaining input)
+         (define-values (body remaining0) (stmt (rest remaining)))
+         (values (node-while conditional body) remaining0)]
+        [(token-for? (first tokens))
+         (token-must-be token-lparen? (rest tokens) input)
+         (define-values (init remaining0)
+           (if (token-semicolon? (caddr tokens))
+               (values null (cddr tokens))
+               (expr (cddr tokens))))
+         (token-must-be token-semicolon? remaining0 input)
 
-  ;; arguments = "int" pointer ident ("," "int" pointer indent)*
-  ;;           | e
-  (define (arguments tokens)
-    (define (cont tokens)
-      (token-must-be token-comma? tokens input)
-      (token-must-be token-int? (rest tokens) input)
-      (define-values (ty remaining) (pointers int (drop tokens 2)))
-      (token-must-be token-identifier?  remaining input)
-      (define name (token-identifier-name (first remaining)))
-      (assign-variable variables name ty)
-      (define arg (new-node-local-variable name))
-      (values arg (rest remaining)))
-    (define cont* (star cont token-comma?))
+         (define-values (conditional remaining1)
+           (if (token-semicolon? (cadr remaining0))
+               (values null (rest remaining0))
+               (expr (rest remaining0))))
+         (token-must-be token-semicolon? remaining1 input)
 
-    (cond [(token-int? (first tokens))
-           (define-values (ty remaining) (pointers int (rest tokens)))
-           (token-must-be token-identifier? remaining input)
-           (define name (token-identifier-name (first remaining)))
-           (assign-variable variables name ty)
-           (define arg (new-node-local-variable name))
-           (define-values (args remaining1) (cont* (rest remaining)))
-           (values (cons arg args) remaining1)]
-          [else
-           (values '() tokens)]))
+         (define-values (next remaining2)
+           (if (token-rparen? (cadr remaining1))
+               (values null (rest remaining1))
+               (expr (rest remaining1))))
+         (token-must-be token-rparen? remaining2 input)
 
-  ;; declaration = "int" ident (" arguments ")" "{" (stmt)* "}"
-  (define (declaration tokens)
-    (cond [(null? tokens) (values '() '())]
-          [(token-int? (first tokens))
-           (define stmt* (star stmt (compose not token-rcurly-brace?)))
+         (define-values (body remaining3) (stmt (rest remaining2)))
+         (values (node-for init conditional next body) remaining3)]
+        [(token-lcurly-brace? (first tokens))
+         (define stmt* (star stmt (compose not token-rcurly-brace?)))
+         (define-values (stmts remaining) (stmt* (rest tokens)))
+         (token-must-be token-rcurly-brace? remaining input)
+         (values (node-block stmts) (rest remaining))]
+        [else
+         (define-values (expr0 remaining) (expr tokens))
+         (token-must-be token-semicolon? remaining input)
+         (values expr0 (rest remaining))]))
 
-           (reset-env)
-           (token-must-be token-identifier? (rest tokens) input)
-           (define name (token-identifier-name (first (rest tokens))))
-           (token-must-be token-lparen? (drop tokens 2) input)
-           (define-values (args remaining0) (arguments (drop tokens 3)))
-           (token-must-be token-rparen? remaining0 input)
-           (token-must-be token-lcurly-brace? (drop remaining0 1) input)
-           (define-values (stmts remaining1) (stmt* (drop remaining0 2)))
-           (token-must-be token-rcurly-brace? remaining1 input)
-           (values (node-func-declaration name args (node-block stmts) variables) (rest remaining1))]
-          [else (values '() tokens)]))
+;; arguments = "int" pointer ident ("," "int" pointer indent)*
+;;           | e
+(define (arguments tokens)
+  (define (cont tokens)
+    (token-must-be token-comma? tokens input)
+    (token-must-be token-int? (rest tokens) input)
+    (define-values (ty remaining) (pointers int (drop tokens 2)))
+    (token-must-be token-identifier?  remaining input)
+    (define name (token-identifier-name (first remaining)))
+    (assign-variable variables name ty)
+    (define arg (new-node-local-variable name))
+    (values arg (rest remaining)))
+  (define cont* (star cont token-comma?))
 
-  ;; program = declaration*
-  (define (program tokens)
-    (define declaration* (star declaration token-int?))
-    (declaration* tokens))
+  (cond [(token-int? (first tokens))
+         (define-values (ty remaining) (pointers int (rest tokens)))
+         (token-must-be token-identifier? remaining input)
+         (define name (token-identifier-name (first remaining)))
+         (assign-variable variables name ty)
+         (define arg (new-node-local-variable name))
+         (define-values (args remaining1) (cont* (rest remaining)))
+         (values (cons arg args) remaining1)]
+        [else
+         (values '() tokens)]))
 
+;; declaration = "int" ident (" arguments ")" "{" (stmt)* "}"
+(define (declaration tokens)
+  (cond [(null? tokens) (values '() '())]
+        [(token-int? (first tokens))
+         (define stmt* (star stmt (compose not token-rcurly-brace?)))
+
+         (reset-env)
+         (token-must-be token-identifier? (rest tokens) input)
+         (define name (token-identifier-name (first (rest tokens))))
+         (token-must-be token-lparen? (drop tokens 2) input)
+         (define-values (args remaining0) (arguments (drop tokens 3)))
+         (token-must-be token-rparen? remaining0 input)
+         (token-must-be token-lcurly-brace? (drop remaining0 1) input)
+         (define-values (stmts remaining1) (stmt* (drop remaining0 2)))
+         (token-must-be token-rcurly-brace? remaining1 input)
+         (values (node-func-declaration name args (node-block stmts) variables) (rest remaining1))]
+        [else (values '() tokens)]))
+
+;; program = declaration*
+(define (program tokens)
+  (define declaration* (star declaration token-int?))
+  (declaration* tokens))
+
+(define (parse prog)
+  (set! input prog)
   (define-values (nodes remaining) (program (tokenize input)))
-  (when (not (null? remaining))
+  (unless (null? remaining)
     (parse-error input (token-char-at (first remaining)) "There exists unconsumed tokens"))
   (values variables nodes))
 
