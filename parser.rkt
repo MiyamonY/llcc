@@ -24,14 +24,14 @@
 
 (define (star a continue?)
   (lambda (tokens)
-    (define (rec nodes tokens)
+    (let rec ((nodes '())
+              (tokens tokens))
       (cond [(null? tokens) (values (reverse nodes) tokens)]
             [(continue? (first tokens))
              (define-values (node remaining) (a tokens))
              (rec (cons node nodes) remaining)]
             [else
-             (values (reverse nodes) tokens)]))
-    (rec '() tokens)))
+             (values (reverse nodes) tokens)]))))
 
 (define input "")
 
