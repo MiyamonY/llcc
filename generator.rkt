@@ -43,7 +43,7 @@
 (define (reserve-local-variables variables)
   (list (command "push rbp")
         (command "mov rbp, rsp")
-        (command (format "sub rsp, ~a" (* 8 (hash-count variables))))))
+        (command (format "sub rsp, ~a" (variable-amount variables)))))
 
 (define (transfer-arguments args variables)
   (define registers '("r9" "r8" "rcx" "rdx" "rsi" "rdi"))

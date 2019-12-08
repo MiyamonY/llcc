@@ -34,7 +34,7 @@
   (define as (has-variable? vars name))
   (unless as
     (variables-error
-     (format "variable: ~a is found in ~a" name (variables-alist vars))))
+     (format "variable: ~a is not found in ~a" name (variables-alist vars))))
   (cdr as))
 
 (define (variable-amount vars)
